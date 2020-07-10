@@ -7,6 +7,8 @@ This toolkit is an extension of the main [CoastSat toolbox](https://github.com/k
 
 The methodology is described in: Cuttler MVW, Vos K, Branson P, Hansen JE, O'Leary M, Browne NK, Lowe RJ (2020) Reef island response to climate-driven variations in water level and wave climate (under review).
 
+There is one Jupyter Notebook in the repository, showing an example of satellite-derived shoreline and island area estimation at [Eva Island](https://github.com/mcuttler/CoastSat.islands/blob/master/example_island_Eva_Island.ipynb), Australia.
+
 To run the examples you will need to install the `coastsat` environment (instructions in the main [CoastSat toolbox](https://github.com/kvos/CoastSat)).
 
 If you want to use [FES2014](https://www.aviso.altimetry.fr/es/data/products/auxiliary-products/global-tide-fes/description-fes2014.html) global tide model to get the tide levels at the time of image acquisition, follow the [instructions](https://github.com/kvos/CoastSat.slope/blob/master/doc/FES2014_installation.md) provided to setup the model.
