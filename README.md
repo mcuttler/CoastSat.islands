@@ -3,7 +3,7 @@ Satellite-derived shorelines and 2D planform measurements for islands, extension
 
 This toolkit is an extension of the main [CoastSat toolbox](https://github.com/kvos/CoastSat), it enables users to estimate the beach-face slope from satellite-derived shorelines and associated tide levels.
 
-The methodology is described in: 
+The methodology is described in: Cuttler MVW, Vos K, Branson P, Hansen JE, O'Leary M, Browne NK, Lowe RJ (2020) Reef island response to climate-driven variations in water level and wave climate (under review).
 
 To run the examples you will need to install the `coastsat` environment (instructions in the main [CoastSat toolbox](https://github.com/kvos/CoastSat)).
 
