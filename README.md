@@ -1,15 +1,23 @@
 # CoastSat.islands
-Satellite-derived shorelines and 2D planform measurements for islands, extension of the CoastSat toolbox.
 
-This toolkit is an extension of the main [CoastSat toolbox](https://github.com/kvos/CoastSat), it enables users to measure shoreline position and two-dimensional planform characteristics (area and orientation) for islands. 
+Satellite-derived shorelines and 2D planform measurements for islands, extension of the [CoastSat toolbox](https://github.com/kvos/CoastSat).
+![](./doc/Eva_sand_polygons.gif)
+
+This toolkit enables users to measure shoreline position and two-dimensional planform characteristics (area and orientation) for small sandy islands. It has the following functionalities:
+- Download satellites images from Google Earth Engine (as in CoastSat)
+- Map the island contours as polygons
+- Tidally correct the island contours
+- Compute island metrics such as area and orientation.
+
+Detailed methodology and application are described in: *Cuttler MVW, Vos K, Branson P, Hansen JE, O'Leary M, Browne NK, Lowe RJ (2020) Reef island response to climate-driven variations in water level and wave climate (under review).*
 
 ![](./doc/Eva_area.gif)
 
-The methodology is described in: Cuttler MVW, Vos K, Branson P, Hansen JE, O'Leary M, Browne NK, Lowe RJ (2020) Reef island response to climate-driven variations in water level and wave climate (under review).
+To run this toolkit you will need to have the `coastsat` environment installed (instructions in the main [CoastSat toolbox](https://github.com/kvos/CoastSat)).
 
-There is one Jupyter Notebook in the repository, showing an example of satellite-derived shoreline and island area estimation at [Eva Island](https://github.com/mcuttler/CoastSat.islands/blob/master/example_island_Eva_Island.ipynb), Australia.
+The [Jupyter Notebook]((https://github.com/mcuttler/CoastSat.islands/blob/master/example_island_Eva_Island.ipynb) in the repository shows an example of satellite-derived shorelines and island area estimation at Eva Island, Western Australia. There is also a [Python script](https://github.com/mcuttler/CoastSat.islands/blob/master/example_islands.py) for users who prefer to use Spyder/PyCharm.
 
-To run the examples you will need to install the `coastsat` environment (instructions in the main [CoastSat toolbox](https://github.com/kvos/CoastSat)).
+
 
 If you want to use [FES2014](https://www.aviso.altimetry.fr/es/data/products/auxiliary-products/global-tide-fes/description-fes2014.html) global tide model to get the tide levels at the time of image acquisition, follow the [instructions](https://github.com/kvos/CoastSat.slope/blob/master/doc/FES2014_installation.md) provided to setup the model.
 
