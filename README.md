@@ -14,7 +14,7 @@ Detailed methodology and application are described in: *Cuttler MVW, Vos K, Bran
 
 To run this toolkit you will need to have the `coastsat` environment installed (instructions in the main [CoastSat toolbox](https://github.com/kvos/CoastSat)).
 
-The [Jupyter Notebook]((https://github.com/mcuttler/CoastSat.islands/blob/master/example_island_Eva_Island.ipynb) in the repository shows an example of satellite-derived shorelines and island area estimation at Eva Island, Western Australia. There is also a [Python script](https://github.com/mcuttler/CoastSat.islands/blob/master/example_islands.py) for users who prefer to use Spyder/PyCharm.
+The [Jupyter Notebook](https://github.com/mcuttler/CoastSat.islands/blob/master/example_island_Eva_Island.ipynb) in the repository shows an example of satellite-derived shorelines and island area estimation at Eva Island, Western Australia. There is also a [Python script](https://github.com/mcuttler/CoastSat.islands/blob/master/example_islands.py) for users who prefer to use Spyder/PyCharm.
 
 For the tidal correction, you will need time-series of water/tide levels at your site. You can provide those in a .txt file as shown in the /example folder. Otherwise, you can use a global tide model to get the modeled tide levels. To use [FES2014](https://www.aviso.altimetry.fr/es/data/products/auxiliary-products/global-tide-fes/description-fes2014.html) global tide model to get the tide levels at the time of image acquisition, refer to the [CoastSat.slope](https://github.com/kvos/CoastSat.slope) repository and follow the [instructions](https://github.com/kvos/CoastSat.slope/blob/master/doc/FES2014_installation.md) provided to setup the tide model.
 
