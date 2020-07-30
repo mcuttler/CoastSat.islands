@@ -12,6 +12,7 @@ Detailed methodology and application are described in: *Cuttler MVW, Vos K, Bran
 - Map the island contours as polygons (more accurate than the shoreline detection in CoastSat for small islands)
 ![](./doc/Eva_sand_polygons.gif)
 - Automatically generate a set of cross-shore transects around the islands
+
 ![](./doc/transects.png)
 - Compute planform island metrics such as area, orientation and eccentricity
 
