@@ -36,9 +36,6 @@ sitename = 'EVA'
 # filepath where data will be stored
 filepath_data = os.path.join(os.getcwd(), 'data')
 
-# island file - contains the coordinates of the island centroid and the beach slope
-island_file = os.path.join(os.getcwd(), 'example',sitename + '_info.csv')
-
 # put all the inputs into a dictionnary
 inputs = {
     'polygon': polygon,
@@ -46,7 +43,6 @@ inputs = {
     'sat_list': sat_list,
     'sitename': sitename,
     'filepath': filepath_data,
-    'island_file': island_file
         }
     
 #%% 2. Retrieve images
@@ -57,7 +53,6 @@ metadata = SDS_download.retrieve_images(inputs)
 # if you have already downloaded the images, just load the metadata file
 metadata = SDS_download.get_metadata(inputs)   
 
-    
 #%% 3. Batch island contour detection
     
 # settings for the sand contour mapping
@@ -77,9 +72,6 @@ settings = {
     'cloud_mask_issue': False,  # switch this parameter to True if sand pixels are masked (in black) on many images
     'sand_color': 'default',    # 'default', 'dark' (for grey/black sand beaches) or 'bright' (for white sand beaches)
 }
-
-#read additional settings for island info - adds:
-settings = SDS_islands.read_island_info(inputs['island_file'],settings)
 
 # [OPTIONAL] preprocess images (cloud masking, pansharpening/down-sampling)
 SDS_preprocess.save_jpg(metadata, settings)
@@ -102,9 +94,7 @@ for i in range(len(output['shorelines'])):
     sl = output['sand_points'][i]
     date = output['dates'][i]
     plt.plot(sl[:,0], sl[:,1], '-', label=date.strftime('%d-%m-%Y'))
-plt.legend()
-mng = plt.get_current_fig_manager()                                         
-mng.window.showMaximized()    
+plt.legend()    
 
 # plot time-series of island metrics (area, orientation, eccentricity)
 fig, ax = plt.subplots(3,1, figsize=(15,6), tight_layout=True, sharex=True)
@@ -125,17 +115,37 @@ filepath = os.path.join(inputs['filepath'], sitename)
 with open(os.path.join(filepath, sitename + '_output' + '.pkl'), 'rb') as f:
     output = pickle.load(f) 
 
-# option 1: draw transects
-transects = SDS_transects.draw_transects(output, settings)
-
-# option 2: automatically compute transects from single origin point for circular islands
+# option 1: automatically compute transects from single origin point for circular islands
+# angles for the transects around the island
 ang_start = 0 
 ang_end = 360
-ang_step = 10 #degree step for calculating transects 
+ang_step = 10 # degree interval for calculating transects 
 settings['heading'] = np.array(list(range(ang_start,ang_end,ang_step)))
+# origing of all the transects
+settings['island_center'] = [12738531, -2502178]
+# length of each transect from the origin
 settings['transect_length'] = 400
-# transects = SDS_islands.calc_island_transects(settings)
+# generate transects automatically
+transects = SDS_islands.calc_island_transects(settings)
     
+# plot transects 
+fig = plt.figure(figsize=(15,6), tight_layout=True)
+plt.axis('equal')
+plt.xlabel('Eastings')
+plt.ylabel('Northings')
+plt.grid(linestyle=':', color='0.5')
+for i in range(len(output['shorelines'])):
+    sl = output['sand_points'][i]
+    date = output['dates'][i]
+    plt.plot(sl[:,0], sl[:,1], '-', label=date.strftime('%d-%m-%Y'))
+plt.legend()
+for key in transects.keys():
+    plt.plot(transects[key][:,0], transects[key][:,1], 'k-')
+plt.plot(settings['island_center'][0],settings['island_center'][1],'ro')
+
+# option 2: draw transects manually (if island is not circular)
+# transects = SDS_transects.draw_transects(output, settings)
+
 # intersect the transects with the 2D shorelines to obtain time-series of cross-shore distance
 settings['along_dist'] = 10
 cross_distance = SDS_islands.compute_intersection_islands(output, transects, settings)            
@@ -147,6 +157,8 @@ cross_distance = SDS_islands.compute_intersection_islands(output, transects, set
 tide_file = os.path.join(os.getcwd(),'example','EvaTide_2019.txt')
 tide, output_corrected = SDS_islands.process_tide_data(tide_file, output)    
 
+# define beach slope to be used for tidal correction
+settings['beach_slope'] = 0.1375
 # define reference height datum for tidal correction
 settings['zref'] = 0      
 # tidally correct the time-series of shoreline change along the transects              

@@ -23,214 +23,20 @@ from shapely.geometry import LineString, LinearRing, Polygon, MultiPoint
 from shapely import ops
 from datetime import datetime, timezone
 import geopandas as gpd
+from sklearn.externals import joblib
 
 # image processing modules
 import skimage.filters as filters
 import skimage.measure as measure
 import skimage.morphology as morphology
 
-# machine learning modules
-from sklearn.externals import joblib
-from shapely.geometry import LineString
-
 # coastsat modules (from main toolbox)
 from coastsat import SDS_shoreline, SDS_preprocess, SDS_tools
 
 
-def read_island_info(island_file,settings):
-    """
-    To be filled
-    MC
-    
-    """
-    
-    island_info = pd.read_csv(island_file)
-    island_info = island_info.values
-    
-    settings['island_center'] = island_info[0,0:2]
-    settings['beach_slope'] = island_info[0,2]
-    
-    return settings 
-
-
-def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_binary_sand_closed, sand_contours,
-                   settings, date, satname, regions):
-    """
-    Shows the detected sand polygons and boundary of this polygon (pseudo shoreline) to the user for visual quality control. The user can select "keep"
-    if the shoreline detection is correct or "skip" if it is incorrect. 
-    
-    KV WRL 2019
-    MC UWA 2019
-    
-    Arguments:
-    -----------
-        im_ms: np.array
-            RGB + downsampled NIR and SWIR
-        cloud_mask: np.array
-            2D cloud mask with True where cloud pixels are
-        im_labels: np.array
-            3D image containing a boolean image for each class in the order (sand, swash, water)
-        shoreline: np.array 
-            array of points with the X and Y coordinates of the shoreline
-        image_epsg: int
-            spatial reference system of the image from which the contours were extracted
-        georef: np.array
-            vector of 6 elements [Xtr, Xscale, Xshear, Ytr, Yshear, Yscale]
-        settings: dict
-            contains important parameters for processing the shoreline
-        date: string
-            date at which the image was taken
-        satname: string
-            indicates the satname (L5,L7,L8 or S2)
-                       
-    Returns:    -----------
-        skip_image: boolean
-            True if the user wants to skip the image, False otherwise.
-            
-    """  
-    
-    sitename = settings['inputs']['sitename']
-    filepath_data = settings['inputs']['filepath']
-    
-    # subfolder where the .jpg file is stored if the user accepts the shoreline detection 
-    filepath_sandpoly = os.path.join(filepath_data, sitename, 'jpg_files', 'sand_polygons')
-    if not os.path.exists(filepath_sandpoly):      
-        os.makedirs(filepath_sandpoly)
-        
-    im_RGB = SDS_preprocess.rescale_image_intensity(im_ms[:,:,[2,1,0]], cloud_mask, 99.9)
-    
-    if plt.get_fignums():
-            # get open figure if it exists
-            fig = plt.gcf()
-            ax1 = fig.axes[0]
-            ax2 = fig.axes[1]
-            ax3 = fig.axes[2]
-    else:
-        # else create a new figure
-        fig = plt.figure()
-        fig.set_size_inches([18, 9])
-        mng = plt.get_current_fig_manager()
-        mng.window.showMaximized()
-
-        # according to the image shape, decide whether it is better to have the images
-        # in vertical subplots or horizontal subplots
-        if im_RGB.shape[1] > 2.5*im_RGB.shape[0]:
-            # vertical subplots
-            gs = gridspec.GridSpec(3, 1)
-            gs.update(bottom=0.03, top=0.97, left=0.03, right=0.97)
-            ax1 = fig.add_subplot(gs[0,0])
-            ax2 = fig.add_subplot(gs[1,0], sharex=ax1, sharey=ax1)
-            ax3 = fig.add_subplot(gs[2,0], sharex=ax1, sharey=ax1)
-        else:
-            # horizontal subplots
-            gs = gridspec.GridSpec(1, 3)
-            gs.update(bottom=0.05, top=0.95, left=0.05, right=0.95)
-            ax1 = fig.add_subplot(gs[0,0])
-            ax2 = fig.add_subplot(gs[0,1], sharex=ax1, sharey=ax1)
-            ax3 = fig.add_subplot(gs[0,2], sharex=ax1, sharey=ax1)
-                                         
-    # create image 1 (RGB)
-    ax1.imshow(im_RGB)
-    ax1.axis('off')
-    ax1.set_title(sitename + '    ' + date + '     ' + satname, fontweight='bold', fontsize=16)
-
-    # create image 2 (classification)
-    im_class = np.copy(im_RGB)
-    cmap = cm.get_cmap('tab20c')
-    colorpalette = cmap(np.arange(0,13,1))
-    colours = np.zeros((3,4))
-    colours[0,:] = colorpalette[5]
-    colours[1,:] = np.array([204/255,1,1,1])
-    colours[2,:] = np.array([0,91/255,1,1])
-    for k in range(0,im_labels.shape[2]):
-        im_class[im_labels[:,:,k],0] = colours[k,0]
-        im_class[im_labels[:,:,k],1] = colours[k,1]
-        im_class[im_labels[:,:,k],2] = colours[k,2]
-        
-    ax2.imshow(im_class)    
-    ax2.axis('off')
-    orange_patch = mpatches.Patch(color=colours[0,:], label='sand')
-    white_patch = mpatches.Patch(color=colours[1,:], label='whitewater')
-    blue_patch = mpatches.Patch(color=colours[2,:], label='water')
-    black_line = mlines.Line2D([],[],color='k',linestyle='-', label='shoreline')
-    ax2.legend(handles=[orange_patch,white_patch,blue_patch, black_line],
-               loc='bottom right', fontsize=10)
-    ax2.set_title(date, fontweight='bold', fontsize=16)
-    
-    # create image 3 (closed sand polygon)
-    ax3.imshow(im_RGB)
-    for props in regions:                       
-        y0, x0 = props.centroid
-        orientation = props.orientation
-        x1 = x0 + math.cos(orientation) * 0.5* props.major_axis_length
-        y1 = y0 - math.sin(orientation) * 0.5* props.major_axis_length
-        x2 = x0 - math.cos(orientation) * 0.5* props.major_axis_length
-        y2 = y0 + math.sin(orientation) * 0.5* props.major_axis_length
-        plt.plot((x0, x1), (y0, y1), '-b', linewidth=2.5)
-        plt.plot((x0, x2), (y0, y2), '-b', linewidth=2.5)
-        plt.plot(x0, y0, '.r', markersize=15)
-        # plt.text(50,25,'Orientation = ' + str(round(np.degrees(sand_orientation),2)), color = 'white',fontweight = 'bold')
-    ax3.set_title('Major Axis Orientation')
-    
-    #plot sand contours on each sub plot
-    for k in range(len(sand_contours)):
-#                ax3.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
-                ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
-                ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)                
-
-    # if check_detection is True, let user manually accept/reject the images
-    skip_image = False
-    if settings['check_detection_sand_poly']:
-
-        # set a key event to accept/reject the detections (see https://stackoverflow.com/a/15033071)
-        # this variable needs to be immuatable so we can access it after the keypress event
-        key_event = {}
-        def press(event):
-            # store what key was pressed in the dictionary
-            key_event['pressed'] = event.key
-        # let the user press a key, right arrow to keep the image, left arrow to skip it
-        # to break the loop the user can press 'escape'
-        while True:
-            btn_keep = plt.text(1.1, 0.9, 'keep ⇨', size=12, ha="right", va="top",
-                                transform=ax1.transAxes,
-                                bbox=dict(boxstyle="square", ec='k',fc='w'))
-            btn_skip = plt.text(-0.1, 0.9, '⇦ skip', size=12, ha="left", va="top",
-                                transform=ax1.transAxes,
-                                bbox=dict(boxstyle="square", ec='k',fc='w'))
-            btn_esc = plt.text(0.5, 0, '<esc> to quit', size=12, ha="center", va="top",
-                                transform=ax1.transAxes,
-                                bbox=dict(boxstyle="square", ec='k',fc='w'))
-            plt.draw()
-            fig.canvas.mpl_connect('key_press_event', press)
-            plt.waitforbuttonpress()
-            # after button is pressed, remove the buttons
-            btn_skip.remove()
-            btn_keep.remove()
-            btn_esc.remove()
-
-            # keep/skip image according to the pressed key, 'escape' to break the loop
-            if key_event.get('pressed') == 'right':
-                skip_image = False
-                break
-            elif key_event.get('pressed') == 'left':
-                skip_image = True
-                break
-            elif key_event.get('pressed') == 'escape':
-                plt.close()
-                raise StopIteration('User cancelled checking shoreline detection')
-            else:
-                plt.waitforbuttonpress()
-
-    # if save_figure is True, save a .jpg under /jpg_files/detection
-    if settings['save_figure'] and not skip_image:
-        fig.savefig(os.path.join(filepath_sandpoly, date + '_' + satname + '.jpg'), dpi=150)
-
-    # Don't close the figure window, but remove all axes and settings, ready for next plot
-    for ax in fig.axes:
-        ax.clear()       
-   
-    return skip_image
-    
+###################################################################################################
+# EXTRACTION OF ISLAND CONTOURS AS SAND POLYGONS
+###################################################################################################
 
 def extract_sand_poly(metadata, settings):
     """
@@ -551,6 +357,189 @@ def extract_sand_poly(metadata, settings):
     return output
 
 
+def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_binary_sand_closed, sand_contours,
+                   settings, date, satname, regions):
+    """
+    Shows the detected sand polygons and boundary of this polygon (pseudo shoreline) to the user for visual quality control. The user can select "keep"
+    if the shoreline detection is correct or "skip" if it is incorrect. 
+    
+    KV WRL 2019
+    MC UWA 2019
+    
+    Arguments:
+    -----------
+        im_ms: np.array
+            RGB + downsampled NIR and SWIR
+        cloud_mask: np.array
+            2D cloud mask with True where cloud pixels are
+        im_labels: np.array
+            3D image containing a boolean image for each class in the order (sand, swash, water)
+        shoreline: np.array 
+            array of points with the X and Y coordinates of the shoreline
+        image_epsg: int
+            spatial reference system of the image from which the contours were extracted
+        georef: np.array
+            vector of 6 elements [Xtr, Xscale, Xshear, Ytr, Yshear, Yscale]
+        settings: dict
+            contains important parameters for processing the shoreline
+        date: string
+            date at which the image was taken
+        satname: string
+            indicates the satname (L5,L7,L8 or S2)
+                       
+    Returns:    -----------
+        skip_image: boolean
+            True if the user wants to skip the image, False otherwise.
+            
+    """  
+    
+    sitename = settings['inputs']['sitename']
+    filepath_data = settings['inputs']['filepath']
+    
+    # subfolder where the .jpg file is stored if the user accepts the shoreline detection 
+    filepath_sandpoly = os.path.join(filepath_data, sitename, 'jpg_files', 'sand_polygons')
+    if not os.path.exists(filepath_sandpoly):      
+        os.makedirs(filepath_sandpoly)
+        
+    im_RGB = SDS_preprocess.rescale_image_intensity(im_ms[:,:,[2,1,0]], cloud_mask, 99.9)
+    
+    if plt.get_fignums():
+            # get open figure if it exists
+            fig = plt.gcf()
+            ax1 = fig.axes[0]
+            ax2 = fig.axes[1]
+            ax3 = fig.axes[2]
+    else:
+        # else create a new figure
+        fig = plt.figure()
+        fig.set_size_inches([18, 9])
+        mng = plt.get_current_fig_manager()
+        mng.window.showMaximized()
+
+        # according to the image shape, decide whether it is better to have the images
+        # in vertical subplots or horizontal subplots
+        if im_RGB.shape[1] > 2.5*im_RGB.shape[0]:
+            # vertical subplots
+            gs = gridspec.GridSpec(3, 1)
+            gs.update(bottom=0.03, top=0.97, left=0.03, right=0.97)
+            ax1 = fig.add_subplot(gs[0,0])
+            ax2 = fig.add_subplot(gs[1,0], sharex=ax1, sharey=ax1)
+            ax3 = fig.add_subplot(gs[2,0], sharex=ax1, sharey=ax1)
+        else:
+            # horizontal subplots
+            gs = gridspec.GridSpec(1, 3)
+            gs.update(bottom=0.05, top=0.95, left=0.05, right=0.95)
+            ax1 = fig.add_subplot(gs[0,0])
+            ax2 = fig.add_subplot(gs[0,1], sharex=ax1, sharey=ax1)
+            ax3 = fig.add_subplot(gs[0,2], sharex=ax1, sharey=ax1)
+                                         
+    # create image 1 (RGB)
+    ax1.imshow(im_RGB)
+    ax1.axis('off')
+    ax1.set_title(sitename + '    ' + date + '     ' + satname, fontweight='bold', fontsize=16)
+
+    # create image 2 (classification)
+    im_class = np.copy(im_RGB)
+    cmap = cm.get_cmap('tab20c')
+    colorpalette = cmap(np.arange(0,13,1))
+    colours = np.zeros((3,4))
+    colours[0,:] = colorpalette[5]
+    colours[1,:] = np.array([204/255,1,1,1])
+    colours[2,:] = np.array([0,91/255,1,1])
+    for k in range(0,im_labels.shape[2]):
+        im_class[im_labels[:,:,k],0] = colours[k,0]
+        im_class[im_labels[:,:,k],1] = colours[k,1]
+        im_class[im_labels[:,:,k],2] = colours[k,2]
+        
+    ax2.imshow(im_class)    
+    ax2.axis('off')
+    orange_patch = mpatches.Patch(color=colours[0,:], label='sand')
+    white_patch = mpatches.Patch(color=colours[1,:], label='whitewater')
+    blue_patch = mpatches.Patch(color=colours[2,:], label='water')
+    black_line = mlines.Line2D([],[],color='k',linestyle='-', label='shoreline')
+    ax2.legend(handles=[orange_patch,white_patch,blue_patch, black_line],
+               loc='bottom right', fontsize=10)
+    ax2.set_title(date, fontweight='bold', fontsize=16)
+    
+    # create image 3 (closed sand polygon)
+    ax3.imshow(im_RGB)
+    for props in regions:                       
+        y0, x0 = props.centroid
+        orientation = props.orientation
+        x1 = x0 + math.cos(orientation) * 0.5* props.major_axis_length
+        y1 = y0 - math.sin(orientation) * 0.5* props.major_axis_length
+        x2 = x0 - math.cos(orientation) * 0.5* props.major_axis_length
+        y2 = y0 + math.sin(orientation) * 0.5* props.major_axis_length
+        plt.plot((x0, x1), (y0, y1), '-b', linewidth=2.5)
+        plt.plot((x0, x2), (y0, y2), '-b', linewidth=2.5)
+        plt.plot(x0, y0, '.r', markersize=15)
+        # plt.text(50,25,'Orientation = ' + str(round(np.degrees(sand_orientation),2)), color = 'white',fontweight = 'bold')
+    ax3.set_title('Major Axis Orientation')
+    
+    #plot sand contours on each sub plot
+    for k in range(len(sand_contours)):
+#                ax3.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
+                ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
+                ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)                
+
+    # if check_detection is True, let user manually accept/reject the images
+    skip_image = False
+    if settings['check_detection_sand_poly']:
+
+        # set a key event to accept/reject the detections (see https://stackoverflow.com/a/15033071)
+        # this variable needs to be immuatable so we can access it after the keypress event
+        key_event = {}
+        def press(event):
+            # store what key was pressed in the dictionary
+            key_event['pressed'] = event.key
+        # let the user press a key, right arrow to keep the image, left arrow to skip it
+        # to break the loop the user can press 'escape'
+        while True:
+            btn_keep = plt.text(1.1, 0.9, 'keep ⇨', size=12, ha="right", va="top",
+                                transform=ax1.transAxes,
+                                bbox=dict(boxstyle="square", ec='k',fc='w'))
+            btn_skip = plt.text(-0.1, 0.9, '⇦ skip', size=12, ha="left", va="top",
+                                transform=ax1.transAxes,
+                                bbox=dict(boxstyle="square", ec='k',fc='w'))
+            btn_esc = plt.text(0.5, 0, '<esc> to quit', size=12, ha="center", va="top",
+                                transform=ax1.transAxes,
+                                bbox=dict(boxstyle="square", ec='k',fc='w'))
+            plt.draw()
+            fig.canvas.mpl_connect('key_press_event', press)
+            plt.waitforbuttonpress()
+            # after button is pressed, remove the buttons
+            btn_skip.remove()
+            btn_keep.remove()
+            btn_esc.remove()
+
+            # keep/skip image according to the pressed key, 'escape' to break the loop
+            if key_event.get('pressed') == 'right':
+                skip_image = False
+                break
+            elif key_event.get('pressed') == 'left':
+                skip_image = True
+                break
+            elif key_event.get('pressed') == 'escape':
+                plt.close()
+                raise StopIteration('User cancelled checking shoreline detection')
+            else:
+                plt.waitforbuttonpress()
+
+    # if save_figure is True, save a .jpg under /jpg_files/detection
+    if settings['save_figure'] and not skip_image:
+        fig.savefig(os.path.join(filepath_sandpoly, date + '_' + satname + '.jpg'), dpi=150)
+
+    # Don't close the figure window, but remove all axes and settings, ready for next plot
+    for ax in fig.axes:
+        ax.clear()       
+   
+    return skip_image
+    
+
+###################################################################################################
+# SHORE-NORMAL TRANSECTS FOR ISLANDS
+###################################################################################################
+
 def calc_island_transects(settings):
     """ 
     This code is for calculating transecs radiating from a single point. It uses the 
@@ -720,6 +709,10 @@ def compute_intersection_islands(output, transects, settings):
     
     return cross_dist
 
+
+###################################################################################################
+# TIDAL CORRECTION
+###################################################################################################
 
 def process_tide_data(tide_file, output):
     """
@@ -974,6 +967,10 @@ def tide_correct_sand_polygon(cross_distance_corrected, output_corrected, settin
     
     return output_corrected
 
+
+###################################################################################################
+# UTILITIES
+###################################################################################################
 
 def output_to_gdf_poly(output):
     """
