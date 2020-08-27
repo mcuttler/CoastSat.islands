@@ -81,6 +81,7 @@ settings['reference_shoreline'] = SDS_preprocess.get_reference_sl(metadata, sett
 # set the max distance (in meters) allowed from the reference shoreline for a detected shoreline to be valid
 settings['max_dist_ref'] = 100        
 
+#Note, you will need to make sure you are in your CoastSat directory to enable detection - this step requires the classification scheme from CoastSat
 # extract shorelines from all images (also saves output.pkl and shorelines.kml)
 output = SDS_islands.extract_sand_poly(metadata, settings)
 
