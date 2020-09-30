@@ -458,7 +458,7 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
     blue_patch = mpatches.Patch(color=colours[2,:], label='water')
     black_line = mlines.Line2D([],[],color='k',linestyle='-', label='shoreline')
     ax2.legend(handles=[orange_patch,white_patch,blue_patch, black_line],
-               loc='bottom right', fontsize=10)
+               loc='lower right', fontsize=10)
     ax2.set_title(date, fontweight='bold', fontsize=16)
     
     # create image 3 (closed sand polygon)
