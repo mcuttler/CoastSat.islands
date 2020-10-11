@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from coastsat import SDS_islands, SDS_download, SDS_preprocess, SDS_tools, SDS_transects
 
 # region of interest (longitude, latitude in WGS84), can be loaded from a .kml polygon
-polygon = SDS_tools.polygon_from_kml(os.path.join(os.getcwd(), 'example','EVA.kml'))
+polygon = SDS_tools.polygon_from_kml(os.path.join(os.getcwd(), 'example','SPERMONDE.kml'))
 # or enter the coordinates (first and last pair of coordinates are the same)
 # polygon = [[114.4249504953477, -21.9295184484435],
 #            [114.4383556651795, -21.92949300318377],
@@ -25,13 +25,13 @@ polygon = SDS_tools.polygon_from_kml(os.path.join(os.getcwd(), 'example','EVA.km
 #            [114.4249504953477, -21.9295184484435]]
 
 # date range
-dates = ['2019-01-01', '2019-02-01']
+dates = ['2019-06-01', '2019-07-01']
 
 # satellite missions
 sat_list = ['S2']
 
 # name of the site
-sitename = 'EVA'
+sitename = 'SPERMONDE'
 
 # filepath where data will be stored
 filepath_data = os.path.join(os.getcwd(), 'data')
@@ -58,7 +58,7 @@ metadata = SDS_download.get_metadata(inputs)
 # settings for the sand contour mapping
 settings = { 
     # general parameters:
-    'cloud_thresh': 0.5,        # threshold on maximum cloud cover
+    'cloud_thresh': 0.9,        # threshold on maximum cloud cover
     'output_epsg': 3857,        # epsg code of spatial reference system desired for the output
     # quality control:        
     'check_detection_sand_poly': True, # if True, uses sand polygon for detection and shows user for validation 
