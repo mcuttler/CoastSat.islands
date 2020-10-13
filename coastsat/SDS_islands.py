@@ -118,7 +118,7 @@ def extract_sand_poly(metadata, settings):
             elif settings['sand_color'] == 'bright':
                 clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat_bright.pkl'))
             else:
-                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat.pkl'))
+                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat_Pilbara.pkl'))
 
         elif satname == 'S2':
             pixel_size = 10
