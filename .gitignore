@@ -12,3 +12,7 @@
 *.geojson
 *checkpoint.ipynb
 *.csv
+data/AIRLIE/L5/30m/data.tif.aux.xml
+data/AIRLIE/L5/30m/imagezip
+data/AIRLIE/L8/ms/data.tif.aux.xml
+data/ANGLE/L8/ms/data.tif.aux.xml
