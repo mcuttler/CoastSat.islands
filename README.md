@@ -5,7 +5,7 @@ Satellite-derived shorelines and 2D planform measurements for islands, extension
 
 This toolkit enables users to measure shoreline position and two-dimensional planform characteristics (area and orientation) for small sandy islands.
 
-Detailed methodology and application are described in: *Cuttler MVW, Vos K, Branson P, Hansen JE, O'Leary M, Browne NK, Lowe RJ (2020) Reef island response to climate-driven variations in water level and wave climate (under review).*
+Detailed methodology and application are described in: *Cuttler MVW, Vos K, Branson P, Hansen JE, O'Leary M, Browne NK, Lowe RJ (2020) Interannual response of reef islands to climate-driven variations in water level and wave climate. Remote Sensing, 12(24), 4089*
 
  It has the following functionalities:
 - Download and preprocess Landsat and Sentinel-2 satellites images from Google Earth Engine (as in CoastSat)
