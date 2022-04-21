@@ -23,7 +23,11 @@ from shapely.geometry import LineString, LinearRing, Polygon, MultiPoint
 from shapely import ops
 from datetime import datetime, timezone
 import geopandas as gpd
-from sklearn.externals import joblib
+import sklearn
+if sklearn.__version__[:4] == '0.20':
+    from sklearn.externals import joblib
+else:
+    import joblib
 
 # image processing modules
 import skimage.filters as filters
