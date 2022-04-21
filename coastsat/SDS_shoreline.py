@@ -17,7 +17,11 @@ import skimage.measure as measure
 import skimage.morphology as morphology
 
 # machine learning modules
-from sklearn.externals import joblib
+import sklearn
+if sklearn.__version__[:4] == '0.20':
+    from sklearn.externals import joblib
+else:
+    import joblib
 from shapely.geometry import LineString
 
 # other modules
@@ -25,8 +29,9 @@ import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 import matplotlib.cm as cm
 from matplotlib import gridspec
-from pylab import ginput
 import pickle
+from datetime import datetime
+from pylab import ginput
 
 # CoastSat modules
 from coastsat import SDS_tools, SDS_preprocess
