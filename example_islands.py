@@ -25,7 +25,7 @@ polygon = SDS_tools.polygon_from_kml(os.path.join(os.getcwd(), 'example','EVA.km
 #            [114.4249504953477, -21.9295184484435]]
 
 # date range
-dates = ['2019-01-01', '2019-02-01']
+dates = ['2021-01-01', '2021-02-01']
 
 # satellite missions
 sat_list = ['S2']
@@ -51,10 +51,10 @@ inputs = {
 metadata = SDS_download.retrieve_images(inputs)
 
 # if you have already downloaded the images, just load the metadata file
-metadata = SDS_download.get_metadata(inputs)   
+# metadata = SDS_download.get_metadata(inputs)   
 
 #%% 3. Batch island contour detection
-    
+%matplotlib qt    
 # settings for the sand contour mapping
 settings = { 
     # general parameters:
