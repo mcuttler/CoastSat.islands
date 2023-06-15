@@ -5,7 +5,6 @@
 # Kilian Vos WRL 2018
 
 #%% 1. Initial settings
-
 # load modules
 import os
 import numpy as np
@@ -13,7 +12,16 @@ import pickle
 import warnings
 warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
+plt.ion()
+import pandas as pd
+from scipy import interpolate
+from scipy import stats
+from datetime import datetime, timedelta
+import pytz
 from coastsat import SDS_islands, SDS_download, SDS_preprocess, SDS_tools, SDS_transects
+%matplotlib qt
+#%% 2. 
 
 # region of interest (longitude, latitude in WGS84), can be loaded from a .kml polygon
 polygon = SDS_tools.polygon_from_kml(os.path.join(os.getcwd(), 'example','EVA.kml'))
@@ -24,12 +32,14 @@ polygon = SDS_tools.polygon_from_kml(os.path.join(os.getcwd(), 'example','EVA.km
 #            [114.4250081185656, -21.91495393621703],
 #            [114.4249504953477, -21.9295184484435]]
 
+# convert polygon to a smallest rectangle (sides parallel to coordinate axes)
+polygon = SDS_tools.smallest_rectangle(polygon)
 # date range
-dates = ['2019-01-01', '2019-02-01']
+dates = ['2019-01-01', '2019-01-20']
 
 # satellite missions
 sat_list = ['S2']
-
+collection = 'C02' # choose Landsat collection 'C01' or 'C02'
 # name of the site
 sitename = 'EVA'
 
@@ -43,18 +53,25 @@ inputs = {
     'sat_list': sat_list,
     'sitename': sitename,
     'filepath': filepath_data,
+    'landsat_collection': collection
         }
+
+# # before downloading the images, check how many images are available for your inputs
+# SDS_download.check_images_available(inputs);
     
 #%% 2. Retrieve images
     
+# only uncomment this line if you want Landsat Tier 2 images (not suitable for time-series analysis)
+# inputs['include_T2'] = True
+
 # retrieve satellite images from GEE
 metadata = SDS_download.retrieve_images(inputs)
 
 # if you have already downloaded the images, just load the metadata file
-metadata = SDS_download.get_metadata(inputs)   
+metadata = SDS_download.get_metadata(inputs) 
 
 #%% 3. Batch island contour detection
-    
+
 # settings for the sand contour mapping
 settings = { 
     # general parameters:
