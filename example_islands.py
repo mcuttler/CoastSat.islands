@@ -20,6 +20,7 @@ from scipy import stats
 from datetime import datetime, timedelta
 import pytz
 from coastsat import SDS_islands, SDS_download, SDS_preprocess, SDS_tools, SDS_transects
+
 %matplotlib qt
 #%% 2. 
 
@@ -65,7 +66,7 @@ inputs = {
 # inputs['include_T2'] = True
 
 # retrieve satellite images from GEE
-metadata = SDS_download.retrieve_images(inputs)
+#metadata = SDS_download.retrieve_images(inputs)
 
 # if you have already downloaded the images, just load the metadata file
 metadata = SDS_download.get_metadata(inputs) 
@@ -73,35 +74,41 @@ metadata = SDS_download.get_metadata(inputs)
 #%% 3. Batch island contour detection
 
 # settings for the sand contour mapping
-settings = { 
+# settings for the shoreline extraction
+settings = {
     # general parameters:
     'cloud_thresh': 0.5,        # threshold on maximum cloud cover
-    'output_epsg': 3857,        # epsg code of spatial reference system desired for the output
-    # quality control:        
-    'check_detection_sand_poly': True, # if True, uses sand polygon for detection and shows user for validation 
-    'save_figure': True,               # if True, saves a figure showing the mapped shoreline for each image
-    # add the inputs defined previously
-    'inputs': inputs,
+    'dist_clouds': 0,         # ditance around clouds where shoreline can't be mapped
+    'output_epsg': 28350,       # epsg code of spatial reference system desired for the output
+    # quality control:
+    'check_detection': False,    # if True, shows each shoreline detection to the user for validation
+    'adjust_detection': False,  # if True, allows user to adjust the postion of each shoreline by changing the threhold
+    'save_figure': True,        # if True, saves a figure showing the mapped shoreline for each image
     # [ONLY FOR ADVANCED USERS] shoreline detection parameters:
-    'min_beach_area': 50,       # minimum area (in metres^2) for an object to be labelled as a beach
+    'min_beach_area': 1000,     # minimum area (in metres^2) for an object to be labelled as a beach
     'buffer_size': 100,         # radius (in metres) of the buffer around sandy pixels considered in the shoreline detection
     'min_length_sl': 500,       # minimum length (in metres) of shoreline perimeter to be valid
-    'cloud_mask_issue': False,  # switch this parameter to True if sand pixels are masked (in black) on many images
-    'sand_color': 'default',    # 'default', 'dark' (for grey/black sand beaches) or 'bright' (for white sand beaches)
+    'cloud_mask_issue': True,  # switch this parameter to True if sand pixels are masked (in black) on many images
+    'sand_color': 'bright',    # 'default', 'latest', 'dark' (for grey/black sand beaches) or 'bright' (for white sand beaches)
+    'pan_off': False,           # True to switch pansharpening off for Landsat 7/8/9 imagery
+    # add the inputs defined previously
+    'inputs': inputs,
 }
 
 # [OPTIONAL] preprocess images (cloud masking, pansharpening/down-sampling)
-SDS_preprocess.save_jpg(metadata, settings)
+#SDS_preprocess.save_jpg(metadata, settings)
 
 # [OPTIONAL] create a reference shoreline (helps to identify outliers and false detections); required if using sand_polygon
 settings['reference_shoreline'] = SDS_preprocess.get_reference_sl(metadata, settings)
 # set the max distance (in meters) allowed from the reference shoreline for a detected shoreline to be valid
 settings['max_dist_ref'] = 100        
 
+#%%
 #Note, you will need to make sure you are in your CoastSat directory to enable detection - this step requires the classification scheme from CoastSat
 # extract shorelines from all images (also saves output.pkl and shorelines.kml)
 output = SDS_islands.extract_sand_poly(metadata, settings)
 
+#%%
 # plot the sand polygons
 fig = plt.figure()
 plt.axis('equal')

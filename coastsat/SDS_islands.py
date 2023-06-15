@@ -10,6 +10,7 @@ import pandas as pd
 import math
 import pickle
 
+
 # plotting modules
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
@@ -81,6 +82,8 @@ def extract_sand_poly(metadata, settings):
     sitename = settings['inputs']['sitename']
     filepath_data = settings['inputs']['filepath']
     filepath_models = os.path.join(os.getcwd(), 'classification', 'models')
+    collection = settings['inputs']['landsat_collection']
+    
     # initialise output structure
     output = dict([])
     # create a subfolder to store the .jpg images showing the detection
@@ -96,6 +99,7 @@ def extract_sand_poly(metadata, settings):
         # get images
         filepath = SDS_tools.get_filepath(settings['inputs'],satname)
         filenames = metadata[satname]['filenames']
+        
 
         # initialise some variables
         output_timestamp = []  # datetime at which the image was acquired (UTC time)
@@ -113,20 +117,24 @@ def extract_sand_poly(metadata, settings):
         output_sand_orientation = []  #orientation of major axis        
 
         # load classifiers and convert settings['min_beach_area'] and settings['buffer_size']
-        # from metres to pixels
-        # load classifiers and
-        if satname in ['L5','L7','L8']:
+        # from metres to pixels  
+        # load classifiers (if sklearn version above 0.20, learn the new files)
+        str_new = ''
+        if not sklearn.__version__[:4] == '0.20':
+            str_new = '_new'
+        if satname in ['L5','L7','L8','L9']:
             pixel_size = 15
             if settings['sand_color'] == 'dark':
-                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat_dark.pkl'))
+                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat_dark%s.pkl'%str_new))
             elif settings['sand_color'] == 'bright':
-                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat_bright.pkl'))
-            else:
-                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat.pkl'))
-
+                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat_bright%s.pkl'%str_new))
+            elif settings['sand_color'] == 'default':
+                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat%s.pkl'%str_new))
+            elif settings['sand_color'] == 'latest':
+                clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_Landsat_latest%s.pkl'%str_new))   
         elif satname == 'S2':
             pixel_size = 10
-            clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_S2.pkl'))
+            clf = joblib.load(os.path.join(filepath_models, 'NN_4classes_S2%s.pkl'%str_new))
 
         # convert settings['min_beach_area'] and settings['buffer_size'] from metres to pixels
         buffer_size_pixels = np.ceil(settings['buffer_size']/pixel_size)
@@ -142,7 +150,10 @@ def extract_sand_poly(metadata, settings):
             # get image filename
             fn = SDS_tools.get_filenames(filenames[i],filepath, satname)
             # preprocess image (cloud mask + pansharpening/downsampling)
-            im_ms, georef, cloud_mask, im_extra, imQA, im_nodata = SDS_preprocess.preprocess_single(fn, satname, settings['cloud_mask_issue'])
+            im_ms, georef, cloud_mask, im_extra, imQA, im_nodata = SDS_preprocess.preprocess_single(fn, satname, 
+                                                                                                    settings['cloud_mask_issue'],
+                                                                                                    settings['pan_off'],
+                                                                                                    collection)
             # get image spatial reference system (epsg code) from metadata dict
             image_epsg = metadata[satname]['epsg'][i]
             # calculate cloud cover
@@ -153,7 +164,7 @@ def extract_sand_poly(metadata, settings):
                 continue
 
             # classify image in 4 classes (sand, whitewater, water, other) with NN classifier
-            im_classif, im_labels = SDS_shoreline.classify_image_NN(im_ms, im_extra, cloud_mask,
+            im_classif, im_labels = SDS_shoreline.classify_image_NN(im_ms, cloud_mask,
                                     min_beach_area_pixels, clf)
             # if the classifier does not detect sand pixels skip this image
             if sum(sum(im_labels[:,:,0])) == 0:
