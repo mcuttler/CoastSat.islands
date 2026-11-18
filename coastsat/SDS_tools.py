@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from scipy import stats, interpolate
 import pyproj
 import pandas as pd
+import imageio
 
 ###################################################################################################
 # COORDINATES CONVERSION FUNCTIONS
@@ -269,6 +270,67 @@ def mask_raster(fn, mask):
     # close dataset and flush cache
     raster = None
 
+def get_image_bounds(fn):
+    """
+    Returns a polygon with the bounds of the image in the .tif file
+     
+    KV WRL 2020
+
+    Arguments:
+    -----------
+    fn: str
+        path to the image (.tif file)         
+                
+    Returns:    
+    -----------
+    bounds_polygon: shapely.geometry.Polygon
+        polygon with the image bounds
+        
+    """
+    
+    # nested functions to get the extent 
+    # copied from https://gis.stackexchange.com/questions/57834/how-to-get-raster-corner-coordinates-using-python-gdal-bindings
+    def GetExtent(gt,cols,rows):
+        'Return list of corner coordinates from a geotransform'
+        ext=[]
+        xarr=[0,cols]
+        yarr=[0,rows]
+        for px in xarr:
+            for py in yarr:
+                x=gt[0]+(px*gt[1])+(py*gt[2])
+                y=gt[3]+(px*gt[4])+(py*gt[5])
+                ext.append([x,y])
+            yarr.reverse()
+        return ext
+    
+    # load .tif file and get bounds
+    if not os.path.exists(fn):
+        raise FileNotFoundError(f"{fn}")
+    data = gdal.Open(fn, gdal.GA_ReadOnly)
+    # Check if data is null meaning the open failed
+    if data is None:
+        print("TIF file: ",fn, "cannot be opened" )
+        os.remove(fn)
+        raise AttributeError
+    else:
+        gt = data.GetGeoTransform()
+        cols = data.RasterXSize
+        rows = data.RasterYSize
+        ext = GetExtent(gt,cols,rows)
+    
+    return geometry.Polygon(ext)
+
+def get_image_dimensions(image_path):
+    "function to get image dimensions with GDAL"
+    dataset = gdal.Open(image_path, gdal.GA_ReadOnly)
+    if dataset is None:
+        raise Exception("Failed to open the image file %s"%image_path)
+    width = dataset.RasterXSize
+    height = dataset.RasterYSize
+    dataset = None
+
+    return width, height
+
 ###################################################################################################
 # UTILITIES
 ###################################################################################################
@@ -397,15 +459,21 @@ def get_filenames(filename, filepath, satname):
     fn: str or list of str
         contains the filepath + filenames to access the satellite image
         
-    """     
-    
+    """ 
+    ms_suffix_Landsat = 'ms.tif'    
+    mask_suffix_Landsat = 'mask.tif'
+    pan_suffix_Landsat = 'pan.tif'
+    if 'dup' in filename:
+        ms_suffix_Landsat = 'ms_%s'%(filename.split('_')[-1])
+        mask_suffix_Landsat = 'mask_%s'%(filename.split('_')[-1])
+        pan_suffix_Landsat = 'pan_%s'%(filename.split('_')[-1])
     if satname == 'L5':
-        fn_mask = filename.replace('ms.tif','mask.tif')
+        fn_mask = filename.replace(ms_suffix_Landsat,mask_suffix_Landsat)
         fn = [os.path.join(filepath[0], filename),
               os.path.join(filepath[1], fn_mask)]
     if satname in ['L7','L8','L9']:
-        fn_pan = filename.replace('ms.tif','pan.tif')
-        fn_mask = filename.replace('ms.tif','mask.tif')
+        fn_pan = filename.replace(ms_suffix_Landsat,pan_suffix_Landsat)
+        fn_mask = filename.replace(ms_suffix_Landsat,mask_suffix_Landsat)
         fn = [os.path.join(filepath[0], filename),
               os.path.join(filepath[1], fn_pan),
               os.path.join(filepath[2], fn_mask)]
@@ -551,8 +619,15 @@ def remove_inaccurate_georef(output, accuracy):
     """
 
     # find indices of shorelines to be removed
-    idx = np.where(~np.logical_or(np.array(output['geoaccuracy']) == -1,
-                                  np.array(output['geoaccuracy']) >= accuracy))[0]
+    idx = []
+    for i in range(len(output['geoaccuracy'])):
+        geoacc = output['geoaccuracy'][i]
+        if geoacc in ['PASSED','FAILED']:
+            if geoacc == 'PASSED':
+                idx.append(i)
+        else:
+            if geoacc <= accuracy:
+                idx.append(i)
     # idx = np.where(~(np.array(output['geoaccuracy']) >= accuracy))[0]
     output_filtered = dict([])
     for key in output.keys():
@@ -606,6 +681,30 @@ def get_closest_datapoint(dates, dates_ts, values_ts):
 # GEODATAFRAMES AND READ/WRITE GEOJSON
 ###################################################################################################
     
+def polygon_from_geojson(fn):
+    """
+    Extracts coordinates from a .kml file.
+    
+    KV WRL 2023
+
+    Arguments:
+    -----------
+    fn: str
+        filepath + filename of the geojson file to be read          
+                
+    Returns:    
+    -----------
+    polygon: list
+        coordinates extracted from the .geojson file
+        
+    """    
+    
+    # read .geojson file
+    gdf = gpd.read_file(fn,driver='GeoJSON')
+    coords = np.array(gdf.iloc[0]['geometry'].exterior.coords)
+    polygon = [[[_[0], _[1]] for _ in coords]]
+    return polygon
+
 def polygon_from_kml(fn):
     """
     Extracts coordinates from a .kml file.
@@ -745,59 +844,9 @@ def transects_to_gdf(transects):
         if i == 0:
             gdf_all = gdf
         else:
-            gdf_all = gdf_all.append(gdf)
+            gdf_all = pd.concat([gdf_all, gdf])
             
     return gdf_all
-
-def get_image_bounds(fn):
-    """
-    Returns a polygon with the bounds of the image in the .tif file
-     
-    KV WRL 2020
-
-    Arguments:
-    -----------
-    fn: str
-        path to the image (.tif file)         
-                
-    Returns:    
-    -----------
-    bounds_polygon: shapely.geometry.Polygon
-        polygon with the image bounds
-        
-    """
-    
-    # nested functions to get the extent 
-    # copied from https://gis.stackexchange.com/questions/57834/how-to-get-raster-corner-coordinates-using-python-gdal-bindings
-    def GetExtent(gt,cols,rows):
-        'Return list of corner coordinates from a geotransform'
-        ext=[]
-        xarr=[0,cols]
-        yarr=[0,rows]
-        for px in xarr:
-            for py in yarr:
-                x=gt[0]+(px*gt[1])+(py*gt[2])
-                y=gt[3]+(px*gt[4])+(py*gt[5])
-                ext.append([x,y])
-            yarr.reverse()
-        return ext
-    
-    # load .tif file and get bounds
-    if not os.path.exists(fn):
-        raise FileNotFoundError(f"{fn}")
-    data = gdal.Open(fn, gdal.GA_ReadOnly)
-    # Check if data is null meaning the open failed
-    if data is None:
-        print("TIF file: ",fn, "cannot be opened" )
-        os.remove(fn)
-        raise AttributeError
-    else:
-        gt = data.GetGeoTransform()
-        cols = data.RasterXSize
-        rows = data.RasterYSize
-        ext = GetExtent(gt,cols,rows)
-    
-    return geometry.Polygon(ext)
 
 def smallest_rectangle(polygon):
     """
@@ -824,6 +873,25 @@ def smallest_rectangle(polygon):
     coords_polygon = np.array(polygon_geom.exterior.coords)
     polygon_rect = [[[_[0], _[1]] for _ in coords_polygon]]
     return polygon_rect
+
+###################################################################################################
+# MAKE ANIMATIONS
+###################################################################################################
+
+def make_animation_mp4(filepath_images, fps, fn_out):
+    "function to create an animation with the saved figures"
+    with imageio.get_writer(fn_out, mode='I', fps=fps) as writer:
+        filenames = os.listdir(filepath_images)
+        # order chronologically
+        filenames = np.sort(filenames)
+        for i in range(len(filenames)):
+            image = imageio.imread(os.path.join(filepath_images,filenames[i]))
+            writer.append_data(image)
+    print('Animation has been generated (using %d frames per second) and saved at %s'%(fps,fn_out))
+    
+###################################################################################################
+# VALIDATION
+###################################################################################################
 
 def compare_timeseries(ts,gt,key,settings):
     if key not in gt.keys():

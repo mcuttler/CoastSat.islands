@@ -22,7 +22,11 @@ import pytz
 from coastsat import SDS_islands, SDS_download, SDS_preprocess, SDS_tools, SDS_transects
 
 %matplotlib qt
-#%% 2. 
+# authenticate and initialise Google Earth Engine
+project_name = 'ee-coastsat-mc'  # <-- set your GEE Cloud Project name here
+SDS_download.authenticate_and_initialize(project_name)
+
+#%% 2.
 
 # region of interest (longitude, latitude in WGS84), can be loaded from a .kml polygon
 polygon = SDS_tools.polygon_from_kml(os.path.join(os.getcwd(), 'example','EVA.kml'))
@@ -40,7 +44,6 @@ dates = ['2019-01-01', '2019-01-20']
 
 # satellite missions
 sat_list = ['S2']
-collection = 'C02' # choose Landsat collection 'C01' or 'C02'
 # name of the site
 sitename = 'EVA'
 
@@ -54,7 +57,6 @@ inputs = {
     'sat_list': sat_list,
     'sitename': sitename,
     'filepath': filepath_data,
-    'landsat_collection': collection
         }
 
 # # before downloading the images, check how many images are available for your inputs

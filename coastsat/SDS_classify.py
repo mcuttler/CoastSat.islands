@@ -9,7 +9,6 @@ Author: Kilian Vos, Water Research Laboratory, University of New South Wales
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 from matplotlib.widgets import LassoSelector
 from matplotlib import path
 import pickle
@@ -103,7 +102,6 @@ def label_images(metadata,settings):
     """
     
     filepath_train = settings['filepath_train']
-    collection = settings['inputs']['landsat_collection']
 
     # initialize figure
     fig,ax = plt.subplots(1,1,figsize=[17,10], tight_layout=True,sharex=True,
@@ -123,7 +121,7 @@ def label_images(metadata,settings):
             im_ms, georef, cloud_mask, im_extra, im_QA, im_nodata = SDS_preprocess.preprocess_single(fn, satname, 
                                                                                                      settings['cloud_mask_issue'],
                                                                                                      settings['pan_off'],
-                                                                                                     collection)
+                                                                                                     settings['s2cloudless_prob'])
 
             # compute cloud_cover percentage (with no data pixels)
             cloud_cover_combined = np.divide(sum(sum(cloud_mask.astype(int))),
@@ -456,7 +454,7 @@ def format_training_data(features, classes, labels):
     
     return X, y
 
-def plot_confusion_matrix(y_true,y_pred,classes,normalize=False,cmap=plt.cm.Blues):
+def plot_confusion_matrix(y_true,y_pred,classes,normalize=False,cmap=plt.get_cmap("Blues")):
     """
     Function copied from the scikit-learn examples (https://scikit-learn.org/stable/)
     This function plots a confusion matrix.
@@ -534,7 +532,6 @@ def evaluate_classifier(classifier, metadata, settings):
     Saves .jpg images with the output of the classification in the folder ./detection
     
     """  
-    collection = settings['inputs']['landsat_collection']
     # create folder called evaluation
     fp = os.path.join(os.getcwd(), 'evaluation')
     if not os.path.exists(fp):
@@ -546,7 +543,7 @@ def evaluate_classifier(classifier, metadata, settings):
                           constrained_layout=True)
 
     # create colormap for labels
-    cmap = cm.get_cmap('tab20c')
+    cmap = plt.get_cmap('tab20c')
     colorpalette = cmap(np.arange(0,13,1))
     colours = np.zeros((3,4))
     colours[0,:] = colorpalette[5]
@@ -574,7 +571,7 @@ def evaluate_classifier(classifier, metadata, settings):
             im_ms, georef, cloud_mask, im_extra, im_QA, im_nodata = SDS_preprocess.preprocess_single(fn, satname, 
                                                                                                      settings['cloud_mask_issue'],
                                                                                                      settings['pan_off'],
-                                                                                                     collection)
+                                                                                                     settings['s2cloudless_prob'])
             image_epsg = metadata[satname]['epsg'][i]
 
             # compute cloud_cover percentage (with no data pixels)
@@ -593,10 +590,10 @@ def evaluate_classifier(classifier, metadata, settings):
                 continue
             # calculate a buffer around the reference shoreline (if any has been digitised)
             im_ref_buffer = SDS_shoreline.create_shoreline_buffer(cloud_mask.shape, georef, image_epsg,
-                                                    pixel_size, settings)
+                                                                  pixel_size, settings)
             # classify image in 4 classes (sand, whitewater, water, other) with NN classifier
-            im_classif, im_labels = SDS_shoreline.classify_image_NN(im_ms, im_extra, cloud_mask,
-                                    min_beach_area_pixels, classifier)
+            im_classif, im_labels = SDS_shoreline.classify_image_NN(im_ms, cloud_mask,
+                                                                    min_beach_area_pixels, classifier)
             # there are two options to map the contours:
             # if there are pixels in the 'sand' class --> use find_wl_contours2 (enhanced)
             # otherwise use find_wl_contours2 (traditional)
@@ -609,12 +606,12 @@ def evaluate_classifier(classifier, metadata, settings):
                 else:
                     # use classification to refine threshold and extract the sand/water interface
                     contours_mwi, t_mndwi = SDS_shoreline.find_wl_contours2(im_ms, im_labels,
-                                                cloud_mask, buffer_size_pixels, im_ref_buffer)
+                                                                            cloud_mask, im_ref_buffer)
             except:
                 print('Could not map shoreline for this image: ' + filenames[i])
                 continue
             # process the water contours into a shoreline
-            shoreline = SDS_shoreline.process_shoreline(contours_mwi, cloud_mask, georef, image_epsg, settings)
+            shoreline = SDS_shoreline.process_shoreline(contours_mwi, cloud_mask_adv, im_nodata, georef, image_epsg, settings)
             try:
                 sl_pix = SDS_tools.convert_world2pix(SDS_tools.convert_epsg(shoreline,
                                                                             settings['output_epsg'],

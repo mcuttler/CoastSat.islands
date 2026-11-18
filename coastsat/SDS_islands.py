@@ -82,8 +82,6 @@ def extract_sand_poly(metadata, settings):
     sitename = settings['inputs']['sitename']
     filepath_data = settings['inputs']['filepath']
     filepath_models = os.path.join(os.getcwd(), 'classification', 'models')
-    collection = settings['inputs']['landsat_collection']
-    
     # initialise output structure
     output = dict([])
     # create a subfolder to store the .jpg images showing the detection
@@ -150,10 +148,9 @@ def extract_sand_poly(metadata, settings):
             # get image filename
             fn = SDS_tools.get_filenames(filenames[i],filepath, satname)
             # preprocess image (cloud mask + pansharpening/downsampling)
-            im_ms, georef, cloud_mask, im_extra, imQA, im_nodata = SDS_preprocess.preprocess_single(fn, satname, 
+            im_ms, georef, cloud_mask, im_extra, imQA, im_nodata = SDS_preprocess.preprocess_single(fn, satname,
                                                                                                     settings['cloud_mask_issue'],
-                                                                                                    settings['pan_off'],
-                                                                                                    collection)
+                                                                                                    settings['pan_off'])
             # get image spatial reference system (epsg code) from metadata dict
             image_epsg = metadata[satname]['epsg'][i]
             # calculate cloud cover
