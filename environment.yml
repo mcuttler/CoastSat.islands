@@ -1,0 +1,40 @@
+name: coastsat
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Python — 3.10 is the safest choice for GDAL + CoastSat
+  - python=3.10
+  # Core geospatial stack (conda-forge gives compatible builds)
+  - gdal
+  - pyproj
+  - shapely
+  - geopandas
+  - fiona
+  # Numerical / scientific
+  - numpy
+  - scipy
+  - pandas
+  - scikit-image
+  - scikit-learn
+  - joblib
+  # Astronomy / time (needed by SDS_download, SDS_slope)
+  - astropy
+  - pytz
+  # NetCDF / tidal data
+  - netcdf4
+  - xarray
+  # Plotting
+  - matplotlib
+  # FES2022 tidal model (needed only for SDS_slope tidal correction)
+  # comment this out if install fails — everything else still works
+  - pyfes
+  # Interactive Python (choose your IDE)
+  - spyder
+  - jupyter
+  - ipython
+  # pip-only packages
+  - pip
+  - pip:
+    - earthengine-api     # Google Earth Engine Python API
+    - s2cloudless          # Sentinel-2 cloud masking (used by SDS_download)
