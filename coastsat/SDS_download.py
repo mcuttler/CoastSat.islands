@@ -531,8 +531,8 @@ def get_metadata(inputs):
                 epsg = df.at['epsg','value']    
                 acc_georef = df.at['acc_georef','value'] 
                 im_quality = df.at['image_quality','value'] 
-                im_width = df.at['im_width','value'] 
-                im_height = df.at['im_height','value'] 
+                im_width = df.at['im_width','value'] if 'im_width' in df.index else 0
+                im_height = df.at['im_height','value'] if 'im_height' in df.index else 0
                 date_str = filename[0:19]
                 date = pytz.utc.localize(datetime(int(date_str[:4]),int(date_str[5:7]),
                                                   int(date_str[8:10]),int(date_str[11:13]),

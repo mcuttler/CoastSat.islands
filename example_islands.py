@@ -22,7 +22,7 @@ import pytz
 from coastsat import SDS_islands, SDS_download, SDS_preprocess, SDS_tools, SDS_transects
 
 %matplotlib qt
-# authenticate and initialise Google Earth Engine
+#authenticate and initialise Google Earth Engine
 project_name = 'ee-coastsat-mc'  # <-- set your GEE Cloud Project name here
 SDS_download.authenticate_and_initialize(project_name)
 
@@ -43,7 +43,7 @@ polygon = SDS_tools.smallest_rectangle(polygon)
 dates = ['2019-01-01', '2019-01-20']
 
 # satellite missions
-sat_list = ['S2']
+sat_list = ['L8','S2']
 # name of the site
 sitename = 'EVA'
 
@@ -60,7 +60,7 @@ inputs = {
         }
 
 # # before downloading the images, check how many images are available for your inputs
-# SDS_download.check_images_available(inputs);
+#SDS_download.check_images_available(inputs);
     
 #%% 2. Retrieve images
     
@@ -68,7 +68,7 @@ inputs = {
 # inputs['include_T2'] = True
 
 # retrieve satellite images from GEE
-#metadata = SDS_download.retrieve_images(inputs)
+metadata = SDS_download.retrieve_images(inputs)
 
 # if you have already downloaded the images, just load the metadata file
 metadata = SDS_download.get_metadata(inputs) 
@@ -80,10 +80,10 @@ metadata = SDS_download.get_metadata(inputs)
 settings = {
     # general parameters:
     'cloud_thresh': 0.5,        # threshold on maximum cloud cover
-    'dist_clouds': 0,         # ditance around clouds where shoreline can't be mapped
+    'dist_clouds': 200,         # ditance around clouds where shoreline can't be mapped
     'output_epsg': 28350,       # epsg code of spatial reference system desired for the output
     # quality control:
-    'check_detection': False,    # if True, shows each shoreline detection to the user for validation
+    'check_detection': True,    # if True, shows each shoreline detection to the user for validation
     'adjust_detection': False,  # if True, allows user to adjust the postion of each shoreline by changing the threhold
     'save_figure': True,        # if True, saves a figure showing the mapped shoreline for each image
     # [ONLY FOR ADVANCED USERS] shoreline detection parameters:
@@ -91,8 +91,9 @@ settings = {
     'buffer_size': 100,         # radius (in metres) of the buffer around sandy pixels considered in the shoreline detection
     'min_length_sl': 500,       # minimum length (in metres) of shoreline perimeter to be valid
     'cloud_mask_issue': True,  # switch this parameter to True if sand pixels are masked (in black) on many images
-    'sand_color': 'bright',    # 'default', 'latest', 'dark' (for grey/black sand beaches) or 'bright' (for white sand beaches)
+    'sand_color': 'default',    # 'default', 'latest', 'dark' (for grey/black sand beaches) or 'bright' (for white sand beaches)
     'pan_off': False,           # True to switch pansharpening off for Landsat 7/8/9 imagery
+    's2cloudless_prob': 100,    # cloud probability threshold for s2cloudless (0-100)
     # add the inputs defined previously
     'inputs': inputs,
 }
@@ -104,6 +105,7 @@ settings = {
 settings['reference_shoreline'] = SDS_preprocess.get_reference_sl(metadata, settings)
 # set the max distance (in meters) allowed from the reference shoreline for a detected shoreline to be valid
 settings['max_dist_ref'] = 100        
+
 
 #%%
 #Note, you will need to make sure you are in your CoastSat directory to enable detection - this step requires the classification scheme from CoastSat

@@ -150,12 +150,21 @@ def extract_sand_poly(metadata, settings):
             # preprocess image (cloud mask + pansharpening/downsampling)
             im_ms, georef, cloud_mask, im_extra, imQA, im_nodata = SDS_preprocess.preprocess_single(fn, satname,
                                                                                                     settings['cloud_mask_issue'],
-                                                                                                    settings['pan_off'])
+                                                                                                    settings['pan_off'],
+                                                                                                    settings['s2cloudless_prob'])
             # get image spatial reference system (epsg code) from metadata dict
             image_epsg = metadata[satname]['epsg'][i]
-            # calculate cloud cover
-            cloud_cover = np.divide(sum(sum(cloud_mask.astype(int))),
-                                    (cloud_mask.shape[0]*cloud_mask.shape[1]))
+
+            # v3.3-style two-step cloud cover (matches extract_shorelines)
+            # first check: skip if basically everything is cloud+nodata
+            cloud_cover_combined = np.divide(sum(sum(cloud_mask.astype(int))),
+                                             (cloud_mask.shape[0]*cloud_mask.shape[1]))
+            if cloud_cover_combined > 0.99:
+                continue
+            # remove nodata pixels from cloud fraction (e.g. L7 scan-line gaps)
+            cloud_mask_adv = np.logical_xor(cloud_mask, im_nodata)
+            cloud_cover = np.divide(sum(sum(cloud_mask_adv.astype(int))),
+                                    (sum(sum((~im_nodata).astype(int)))))
             # skip image if cloud cover is above threshold
             if cloud_cover > settings['cloud_thresh']:
                 continue
@@ -203,7 +212,7 @@ def extract_sand_poly(metadata, settings):
                     
                     # convert to world coordinates
                     sand_contours_world = SDS_tools.convert_pix2world(sand_contours[0],georef)
-                    sand_contours_coords = SDS_tools.convert_epsg(sand_contours_world, image_epsg, settings['output_epsg'])[:,:-1]               
+                    sand_contours_coords = SDS_tools.convert_epsg(sand_contours_world, image_epsg, settings['output_epsg'])               
                     # make a shapely polygon 
                     if len(sand_contours_coords)>=3:
                         linear_ring = LinearRing(coordinates=sand_contours_coords[~np.isnan(sand_contours_coords[:,0])])
@@ -211,7 +220,7 @@ def extract_sand_poly(metadata, settings):
                 else:    
                     # convert to world coordinates
                     sand_contours_world = SDS_tools.convert_pix2world(sand_contours[0],georef)
-                    sand_contours_coords = SDS_tools.convert_epsg(sand_contours_world, image_epsg, settings['output_epsg'])[:,:-1]               
+                    sand_contours_coords = SDS_tools.convert_epsg(sand_contours_world, image_epsg, settings['output_epsg'])               
                     # make a shapely polygon
                     if len(sand_contours_coords)>=3:
                         linear_ring = LinearRing(coordinates=sand_contours_coords[~np.isnan(sand_contours_coords[:,0])])
@@ -220,7 +229,7 @@ def extract_sand_poly(metadata, settings):
             else:    
                 # convert to world coordinates
                 sand_contours_world = SDS_tools.convert_pix2world(sand_contours[0],georef)
-                sand_contours_coords = SDS_tools.convert_epsg(sand_contours_world, image_epsg, settings['output_epsg'])[:,:-1]               
+                sand_contours_coords = SDS_tools.convert_epsg(sand_contours_world, image_epsg, settings['output_epsg'])               
                 # make a shapely polygon
                 if len(sand_contours_coords)>=3:
                     linear_ring = LinearRing(coordinates=sand_contours_coords[~np.isnan(sand_contours_coords[:,0])])
@@ -240,7 +249,7 @@ def extract_sand_poly(metadata, settings):
                     sand_contours = [sand_contours[np.argmax(n_points)]]   
                 # convert to world coordinates
                 sand_contours_world = SDS_tools.convert_pix2world(sand_contours[0],georef)
-                sand_contours_coords = SDS_tools.convert_epsg(sand_contours_world, image_epsg, settings['output_epsg'])[:,:-1]               
+                sand_contours_coords = SDS_tools.convert_epsg(sand_contours_world, image_epsg, settings['output_epsg'])               
                 # make a shapely polygon
                 if len(sand_contours_coords)>=3:
                     linear_ring = LinearRing(coordinates=sand_contours_coords[~np.isnan(sand_contours_coords[:,0])])
@@ -274,7 +283,7 @@ def extract_sand_poly(metadata, settings):
                 ref_sl = settings['reference_shoreline']
                 # convert to pixel coordinates
                 ref_sl_pix = SDS_tools.convert_world2pix(SDS_tools.convert_epsg(ref_sl, settings['output_epsg'],
-                                                                                image_epsg)[:,:-1], georef)
+                                                                                image_epsg), georef)
                 ref_sl_pix_rounded = np.round(ref_sl_pix).astype(int)
                 # create binary image of the reference shoreline
                 im_binary = np.zeros(cloud_mask.shape)
@@ -292,19 +301,21 @@ def extract_sand_poly(metadata, settings):
             try:
                 if sum(sum(im_labels[:,:,0])) == 0 :
                     # compute MNDWI (SWIR-Green normalized index) grayscale image
-                    im_mndwi = SDS_shoreline.nd_index(im_ms[:,:,4], im_ms[:,:,1], cloud_mask)
+                    im_mndwi = SDS_tools.nd_index(im_ms[:,:,4], im_ms[:,:,1], cloud_mask)
                     # find water contours on MNDWI grayscale image
-                    contours_mwi = SDS_shoreline.find_wl_contours1(im_mndwi, cloud_mask, im_ref_buffer)
+                    contours_mwi, t_mwi = SDS_shoreline.find_wl_contours1(im_mndwi, cloud_mask, im_ref_buffer)
                 else:
                     # use classification to refine threshold and extract sand/water interface
-                    contours_wi, contours_mwi = SDS_shoreline.find_wl_contours2(im_ms, im_labels,
-                                                cloud_mask, buffer_size_pixels, im_ref_buffer)
-            except:
-                print('Could not map shoreline for this image: ' + filenames[i])
+                    # v3.3: find_wl_contours2 returns (contours_mwi, t_mwi), no buffer_size_pixels param
+                    contours_mwi, t_mwi = SDS_shoreline.find_wl_contours2(im_ms, im_labels,
+                                                cloud_mask, im_ref_buffer)
+            except Exception as e:
+                print('Could not map shoreline for this image: ' + filenames[i] + '  [' + str(e) + ']')
                 continue
 
             # process water contours into shorelines
-            shoreline = SDS_shoreline.process_shoreline(contours_mwi, cloud_mask, georef, image_epsg, settings)
+            # v3.3: process_shoreline now takes cloud_mask_adv and im_nodata
+            shoreline = SDS_shoreline.process_shoreline(contours_mwi, cloud_mask_adv, im_nodata, georef, image_epsg, settings)
             
             if settings['check_detection_sand_poly']:
                 date = filenames[i][:18]
@@ -360,11 +371,12 @@ def extract_sand_poly(metadata, settings):
         pickle.dump(output, f)        
     
     # save output into a gdb.GeoDataFrame
-    gdf = SDS_tools.output_to_gdf(output)
-    # set projection
-    gdf.crs = {'init':'epsg:'+str(settings['output_epsg'])}
-    # save as geojson
-    gdf.to_file(os.path.join(filepath, sitename + '_output.geojson'), driver='GeoJSON', encoding='utf-8')
+    gdf = SDS_tools.output_to_gdf(output, geomtype='lines')
+    if gdf is not None:
+        # set projection
+        gdf.crs = {'init':'epsg:'+str(settings['output_epsg'])}
+        # save as geojson
+        gdf.to_file(os.path.join(filepath, sitename + '_output.geojson'), driver='GeoJSON', encoding='utf-8')
         
     return output
 
