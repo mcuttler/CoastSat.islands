@@ -83,7 +83,7 @@ settings = {
     'dist_clouds': 200,         # ditance around clouds where shoreline can't be mapped
     'output_epsg': 28350,       # epsg code of spatial reference system desired for the output
     # quality control:
-    'check_detection': True,    # if True, shows each shoreline detection to the user for validation
+    'check_detection': False,    # if True, shows each shoreline detection to the user for validation
     'adjust_detection': False,  # if True, allows user to adjust the postion of each shoreline by changing the threhold
     'save_figure': True,        # if True, saves a figure showing the mapped shoreline for each image
     # [ONLY FOR ADVANCED USERS] shoreline detection parameters:
@@ -151,7 +151,7 @@ ang_end = 360
 ang_step = 10 # degree interval for calculating transects 
 settings['heading'] = np.array(list(range(ang_start,ang_end,ang_step)))
 # origing of all the transects
-settings['island_center'] = [12738531, -2502178]  # !! must be in output_epsg (EPSG:28350)
+settings['island_center'] = np.mean(settings['reference_shoreline'], axis=0).tolist()
 # To get the correct coordinates run:  np.mean(settings['reference_shoreline'], axis=0)
 # length of each transect from the origin
 settings['transect_length'] = 400
@@ -184,38 +184,38 @@ cross_distance = SDS_islands.compute_intersection_islands(output, transects, set
 
 # ---- Option 1: FES2022 global tide model (recommended) -------------------------
 # Setup instructions: https://github.com/kvos/CoastSat/blob/master/doc/FES2022_setup.md
-from coastsat import SDS_slope
-import pyfes
-# import json  # needed for Option 1b (latitude-clipped model) below
+# from coastsat import SDS_slope
+# import pyfes
+# # import json  # needed for Option 1b (latitude-clipped model) below
 
-# centroid of the ROI polygon in WGS84 (lon, lat); FES uses 0–360 longitudes
-centroid = np.mean(polygon[0], axis=0)
-if centroid[0] < 0: centroid[0] += 360
+# # centroid of the ROI polygon in WGS84 (lon, lat); FES uses 0–360 longitudes
+# centroid = np.mean(polygon[0], axis=0)
+# if centroid[0] < 0: centroid[0] += 360
 
-# Option 1a: load full global model (requires ~8 GB RAM)
-filepath_fes = os.path.join(os.pardir, 'CoastSat.webgis', 'aviso-fes-main', 'data', 'fes2022b')
-selected_yaml = os.path.join(filepath_fes, 'fes2022.yaml')
-# # Option 1b: latitude-clipped model (1–2 GB RAM)
-# fp_band_configs = os.path.join(os.getcwd(), 'examples', 'tide_model_clipping',
-#                                'fes2022_by_latitude', 'band_configs.json')
-# with open(fp_band_configs, 'r') as f: band_configs = json.load(f)
-# selected_yaml = SDS_slope.select_yaml_for_centroid(centroid, band_configs)['yaml']
+# # Option 1a: load full global model (requires ~8 GB RAM)
+# filepath_fes = os.path.join(os.pardir, 'CoastSat.webgis', 'aviso-fes-main', 'data', 'fes2022b')
+# selected_yaml = os.path.join(filepath_fes, 'fes2022.yaml')
+# # # Option 1b: latitude-clipped model (1–2 GB RAM)
+# # fp_band_configs = os.path.join(os.getcwd(), 'examples', 'tide_model_clipping',
+# #                                'fes2022_by_latitude', 'band_configs.json')
+# # with open(fp_band_configs, 'r') as f: band_configs = json.load(f)
+# # selected_yaml = SDS_slope.select_yaml_for_centroid(centroid, band_configs)['yaml']
 
-# load pyfes (supports both pre-2026 and 2026+ API)
-if int(pyfes.__version__.split('.')[0]) < 2026:
-    handlers = pyfes.load_config(selected_yaml)
-    ocean_tide, load_tide = handlers['tide'], handlers['radial']
-else:
-    config = pyfes.config.load(selected_yaml)
-    ocean_tide, load_tide = config.models['tide'], config.models['radial']
+# # load pyfes (supports both pre-2026 and 2026+ API)
+# if int(pyfes.__version__.split('.')[0]) < 2026:
+#     handlers = pyfes.load_config(selected_yaml)
+#     ocean_tide, load_tide = handlers['tide'], handlers['radial']
+# else:
+#     config = pyfes.config.load(selected_yaml)
+#     ocean_tide, load_tide = config.models['tide'], config.models['radial']
 
-# compute tides: full time-series (15-min) and at satellite acquisition times
-date_range = [pytz.utc.localize(datetime(1984, 1, 1)), pytz.utc.localize(datetime(2030, 1, 1))]
-dates_ts, tides_ts = SDS_slope.compute_tide(centroid, date_range, 900, ocean_tide, load_tide)
-tides_sat = SDS_slope.compute_tide_dates(centroid, output['dates'], ocean_tide, load_tide)
-# package for tide_correct_sand_polygon (FES has no gaps so output_corrected == output)
-output_corrected = dict(output)
-output_corrected['tide'] = list(tides_sat)
+# # compute tides: full time-series (15-min) and at satellite acquisition times
+# date_range = [pytz.utc.localize(datetime(1984, 1, 1)), pytz.utc.localize(datetime(2030, 1, 1))]
+# dates_ts, tides_ts = SDS_slope.compute_tide(centroid, date_range, 900, ocean_tide, load_tide)
+# tides_sat = SDS_slope.compute_tide_dates(centroid, output['dates'], ocean_tide, load_tide)
+# # package for tide_correct_sand_polygon (FES has no gaps so output_corrected == output)
+# output_corrected = dict(output)
+# output_corrected['tide'] = list(tides_sat)
 
 # ---- Option 2: measured tide data — CoastSat standard UTC CSV -------------------
 # CSV must have columns: 'dates' (UTC, pandas-parseable) and 'tide' (metres above MSL)
@@ -223,8 +223,8 @@ output_corrected['tide'] = list(tides_sat)
 # tides_sat, output_corrected = SDS_islands.process_tide_data(tide_file, output)
 
 # ---- Option 3: measured tide data — legacy tab-separated (WA local time, UTC+8) -
-# tide_file = os.path.join(os.getcwd(), 'example', 'EvaTide_2019.txt')
-# tides_sat, output_corrected = SDS_islands.process_tide_data(tide_file, output)
+tide_file = os.path.join(os.getcwd(), 'example', 'EvaTide_2019.txt')
+tides_sat, output_corrected = SDS_islands.process_tide_data(tide_file, output)
 
 # plot tide levels at satellite acquisition times (matches v3.3 style)
 fig, ax = plt.subplots(1, 1, figsize=(15, 4), tight_layout=True)

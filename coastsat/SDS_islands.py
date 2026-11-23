@@ -22,7 +22,7 @@ from pylab import ginput
 # geospatial
 from shapely.geometry import LineString, LinearRing, Polygon, MultiPoint
 from shapely import ops
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import geopandas as gpd
 import sklearn
 if sklearn.__version__[:4] == '0.20':
