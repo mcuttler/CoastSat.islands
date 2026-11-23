@@ -154,18 +154,14 @@ def extract_sand_poly(metadata, settings):
                                                                                                     settings['s2cloudless_prob'])
             # get image spatial reference system (epsg code) from metadata dict
             image_epsg = metadata[satname]['epsg'][i]
-
             # v3.3-style two-step cloud cover (matches extract_shorelines)
-            # first check: skip if basically everything is cloud+nodata
             cloud_cover_combined = np.divide(sum(sum(cloud_mask.astype(int))),
                                              (cloud_mask.shape[0]*cloud_mask.shape[1]))
             if cloud_cover_combined > 0.99:
                 continue
-            # remove nodata pixels from cloud fraction (e.g. L7 scan-line gaps)
             cloud_mask_adv = np.logical_xor(cloud_mask, im_nodata)
             cloud_cover = np.divide(sum(sum(cloud_mask_adv.astype(int))),
                                     (sum(sum((~im_nodata).astype(int)))))
-            # skip image if cloud cover is above threshold
             if cloud_cover > settings['cloud_thresh']:
                 continue
 
@@ -317,9 +313,12 @@ def extract_sand_poly(metadata, settings):
             # v3.3: process_shoreline now takes cloud_mask_adv and im_nodata
             shoreline = SDS_shoreline.process_shoreline(contours_mwi, cloud_mask_adv, im_nodata, georef, image_epsg, settings)
             
-            if settings['check_detection_sand_poly']:
+            # v3.3-aligned: use standard 'check_detection' and 'save_figure' keys.
+            # 'check_detection_sand_poly' has been retired — populate settings with
+            # check_detection=True (interactive) and/or save_figure=True (auto-save jpg).
+            if settings.get('check_detection', False) or settings.get('save_figure', False):
                 date = filenames[i][:18]
-                skip_image = show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_binary_sand_closed, 
+                skip_image = show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_binary_sand_closed,
                                                       sand_contours, settings, date, satname, regions)
                 # if user decides to skip the image
                 if skip_image:
@@ -464,7 +463,9 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
 
     # create image 2 (classification)
     im_class = np.copy(im_RGB)
-    cmap = cm.get_cmap('tab20c')
+    # Use plt.colormaps (matplotlib >=3.5); cm.get_cmap removed in 3.9,
+    # cm.colormaps not reliably available as a submodule attribute.
+    cmap = plt.colormaps['tab20c']
     colorpalette = cmap(np.arange(0,13,1))
     colours = np.zeros((3,4))
     colours[0,:] = colorpalette[5]
@@ -506,9 +507,10 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
                 ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
                 ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)                
 
-    # if check_detection is True, let user manually accept/reject the images
+    # if check_detection is True, let user manually accept/reject the images.
+    # Uses standard CoastSat 'check_detection' key (not deprecated 'check_detection_sand_poly').
     skip_image = False
-    if settings['check_detection_sand_poly']:
+    if settings.get('check_detection', False):
 
         # set a key event to accept/reject the detections (see https://stackoverflow.com/a/15033071)
         # this variable needs to be immuatable so we can access it after the keypress event
@@ -633,8 +635,9 @@ def compute_intersection_islands(output, transects, settings):
             corrected.
         
     """      
-    #use sand_points as shoreline when using sand_polygon, else use typical CoastSat shoreline
-    if settings['check_detection_sand_poly']:
+    # Use sand_points (from sand polygon extraction) when available; fall back to
+    # standard CoastSat shorelines otherwise.  This is data-driven: no settings flag needed.
+    if 'sand_points' in output and len(output['sand_points']) > 0:
         shorelines = output['sand_points']
     else:
         shorelines = output['shorelines']
