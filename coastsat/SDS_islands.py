@@ -339,7 +339,7 @@ def extract_sand_poly(metadata, settings):
             output_sand_eccentricity.append(sand_eccentricity)
             output_sand_orientation.append(sand_orientation)
             
-        # create dictionnary of output
+        # create output dictionary (superset of v3.3 extract_shorelines; adds island-specific fields)
         output[satname] = {
                 'dates': output_timestamp,
                 'shorelines': output_shoreline,
@@ -352,8 +352,7 @@ def extract_sand_poly(metadata, settings):
                 'sand_centroid': output_sand_centroid,
                 'sand_points': output_sand_points,
                 'sand_eccentricity': output_sand_eccentricity,
-                'sand_orientation': output_sand_orientation,                
-                'idx': output_idxkeep
+                'sand_orientation': output_sand_orientation,
                 }
         print('')
 
@@ -364,7 +363,7 @@ def extract_sand_poly(metadata, settings):
     # change the format to have one list sorted by date with all the shorelines (easier to use)
     output = SDS_tools.merge_output(output)
 
-    # save outputput structure as output.pkl
+    # save output structure as output.pkl
     filepath = os.path.join(filepath_data, sitename)
     with open(os.path.join(filepath, sitename + '_output.pkl'), 'wb') as f:
         pickle.dump(output, f)        
@@ -373,7 +372,7 @@ def extract_sand_poly(metadata, settings):
     gdf = SDS_tools.output_to_gdf(output, geomtype='lines')
     if gdf is not None:
         # set projection
-        gdf.crs = {'init':'epsg:'+str(settings['output_epsg'])}
+        gdf = gdf.set_crs(epsg=settings['output_epsg'])
         # save as geojson
         gdf.to_file(os.path.join(filepath, sitename + '_output.geojson'), driver='GeoJSON', encoding='utf-8')
         
@@ -381,125 +380,153 @@ def extract_sand_poly(metadata, settings):
 
 
 def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_binary_sand_closed, sand_contours,
-                   settings, date, satname, regions):
+                             settings, date, satname, regions):
     """
-    Shows the detected sand polygons and boundary of this polygon (pseudo shoreline) to the user for visual quality control. The user can select "keep"
-    if the shoreline detection is correct or "skip" if it is incorrect. 
-    
+    Show the detected sand polygon and its boundary to the user for visual quality control.
+    The user can accept or reject each detection using keep/skip buttons.
+
+    Extends SDS_shoreline.show_detection (KV WRL 2018) with an extra panel showing
+    the detected sand polygon major-axis orientation (island-specific).
+
     KV WRL 2019
     MC UWA 2019
-    
+
     Arguments:
     -----------
-        im_ms: np.array
-            RGB + downsampled NIR and SWIR
-        cloud_mask: np.array
-            2D cloud mask with True where cloud pixels are
-        im_labels: np.array
-            3D image containing a boolean image for each class in the order (sand, swash, water)
-        shoreline: np.array 
-            array of points with the X and Y coordinates of the shoreline
-        image_epsg: int
-            spatial reference system of the image from which the contours were extracted
-        georef: np.array
-            vector of 6 elements [Xtr, Xscale, Xshear, Ytr, Yshear, Yscale]
-        settings: dict
-            contains important parameters for processing the shoreline
-        date: string
-            date at which the image was taken
-        satname: string
-            indicates the satname (L5,L7,L8 or S2)
-                       
-    Returns:    -----------
-        skip_image: boolean
-            True if the user wants to skip the image, False otherwise.
-            
-    """  
-    
+    im_ms: np.array
+        RGB + downsampled NIR and SWIR bands
+    cloud_mask: np.array
+        2D boolean cloud mask (True = cloud)
+    im_labels: np.array
+        3D boolean array, one layer per class (sand, swash, water)
+    im_binary_sand: np.array
+        2D binary image of raw sand classification
+    im_binary_sand_closed: np.array
+        2D binary image after morphological closing
+    sand_contours: list of np.array
+        pixel-coordinate contours of the sand polygon boundary
+    settings: dict with keys:
+        'inputs': dict with 'sitename', 'filepath', 'dates'
+        'check_detection': bool — if True, prompt user to accept/reject
+        'save_figure': bool — if True, save a .jpg for each kept detection
+    date: str
+        image acquisition date string
+    satname: str
+        satellite name (L5, L7, L8, L9, S2)
+    regions: list of skimage RegionProperties
+        region properties of detected sand blobs (for orientation overlay)
+
+    Returns:
+    -----------
+    skip_image: bool
+        True if the user chose to skip this image, False otherwise
+    """
+
     sitename = settings['inputs']['sitename']
     filepath_data = settings['inputs']['filepath']
-    
-    # subfolder where the .jpg file is stored if the user accepts the shoreline detection 
+
+    # subfolder where the .jpg file is stored if the user accepts the detection
     filepath_sandpoly = os.path.join(filepath_data, sitename, 'jpg_files', 'sand_polygons')
-    if not os.path.exists(filepath_sandpoly):      
+    if not os.path.exists(filepath_sandpoly):
         os.makedirs(filepath_sandpoly)
-        
+
     im_RGB = SDS_preprocess.rescale_image_intensity(im_ms[:,:,[2,1,0]], cloud_mask, 99.9)
-    
+
+    # build classification overlay
+    im_class = np.copy(im_RGB)
+    # plt.colormaps is the modern API (matplotlib >=3.5; get_cmap removed in 3.9)
+    cmap = plt.colormaps['tab20c']
+    colorpalette = cmap(np.arange(0, 13, 1))
+    colours = np.zeros((3, 4))
+    colours[0, :] = colorpalette[5]
+    colours[1, :] = np.array([204/255, 1, 1, 1])
+    colours[2, :] = np.array([0, 91/255, 1, 1])
+    for k in range(0, im_labels.shape[2]):
+        im_class[im_labels[:, :, k], 0] = colours[k, 0]
+        im_class[im_labels[:, :, k], 1] = colours[k, 1]
+        im_class[im_labels[:, :, k], 2] = colours[k, 2]
+
+    # replace NaN pixels with white so imshow renders them cleanly
+    nan_color = 1.0
+    im_RGB = np.where(np.isnan(im_RGB), nan_color, im_RGB)
+    im_class = np.where(np.isnan(im_class), 1.0, im_class)
+
     if plt.get_fignums():
-            # get open figure if it exists
-            fig = plt.gcf()
-            ax1 = fig.axes[0]
-            ax2 = fig.axes[1]
-            ax3 = fig.axes[2]
+        # reuse open figure
+        fig = plt.gcf()
+        ax1 = fig.axes[0]
+        ax2 = fig.axes[1]
+        ax3 = fig.axes[2]
+        ax4 = fig.axes[3]
     else:
-        # else create a new figure
+        # create new figure
         fig = plt.figure()
         fig.set_size_inches([18, 9])
         mng = plt.get_current_fig_manager()
         mng.window.showMaximized()
 
-        # according to the image shape, decide whether it is better to have the images
-        # in vertical subplots or horizontal subplots
+        # choose layout based on image aspect ratio (matches SDS_shoreline.show_detection)
         if im_RGB.shape[1] > 2.5*im_RGB.shape[0]:
-            # vertical subplots
-            gs = gridspec.GridSpec(3, 1)
+            # wide image: stack panels vertically, timeline on top
+            gs = gridspec.GridSpec(4, 1, height_ratios=[0.1, 1, 1, 1])
             gs.update(bottom=0.03, top=0.97, left=0.03, right=0.97)
-            ax1 = fig.add_subplot(gs[0,0])
-            ax2 = fig.add_subplot(gs[1,0], sharex=ax1, sharey=ax1)
-            ax3 = fig.add_subplot(gs[2,0], sharex=ax1, sharey=ax1)
+            ax1 = fig.add_subplot(gs[1])
+            ax2 = fig.add_subplot(gs[2], sharex=ax1, sharey=ax1)
+            ax3 = fig.add_subplot(gs[3], sharex=ax1, sharey=ax1)
+            ax4 = fig.add_subplot(gs[0])
         else:
-            # horizontal subplots
-            gs = gridspec.GridSpec(1, 3)
-            gs.update(bottom=0.05, top=0.95, left=0.05, right=0.95)
-            ax1 = fig.add_subplot(gs[0,0])
-            ax2 = fig.add_subplot(gs[0,1], sharex=ax1, sharey=ax1)
-            ax3 = fig.add_subplot(gs[0,2], sharex=ax1, sharey=ax1)
-                                         
-    # create image 1 (RGB)
+            # square/tall image: panels side by side, timeline spanning top
+            gs = gridspec.GridSpec(2, 3, height_ratios=[1, 8], hspace=0.1)
+            gs.update(bottom=0.03, top=0.99, left=0.03, right=0.97)
+            ax1 = fig.add_subplot(gs[1, 0])
+            ax2 = fig.add_subplot(gs[1, 1], sharex=ax1, sharey=ax1)
+            ax3 = fig.add_subplot(gs[1, 2], sharex=ax1, sharey=ax1)
+            ax4 = fig.add_subplot(gs[0, :])
+
+    # timeline (ax4) — marks current image on the acquisition date range
+    date_start = datetime.strptime(settings['inputs']['dates'][0], '%Y-%m-%d')
+    date_end = datetime.strptime(settings['inputs']['dates'][1], '%Y-%m-%d')
+    ax4.axis('off')
+    ax4.axhline(y=0, ls='-', lw=2, c='k')
+    ax4.set(xlim=[date_start - timedelta(days=30), date_end + timedelta(days=30)], ylim=[-0.1, 0.1])
+    for k in range(date_start.year, date_end.year + 1):
+        ax4.plot(datetime(k, 1, 1), 0, 'ko', ms=6)
+        ax4.text(datetime(k, 1, 1), -0.05, str(k)[-2:], ha='center', va='center')
+    ax4.plot(datetime.strptime(date[:10], '%Y-%m-%d'), 0, 'rs', ms=10, mec='k')
+
+    # panel 1: RGB with sand contour overlay
     ax1.imshow(im_RGB)
     ax1.axis('off')
-    ax1.set_title(sitename + '    ' + date + '     ' + satname, fontweight='bold', fontsize=16)
+    ax1.set_title(sitename, fontweight='bold', fontsize=12)
 
-    # create image 2 (classification)
-    im_class = np.copy(im_RGB)
-    # Use plt.colormaps (matplotlib >=3.5); cm.get_cmap removed in 3.9,
-    # cm.colormaps not reliably available as a submodule attribute.
-    cmap = plt.colormaps['tab20c']
-    colorpalette = cmap(np.arange(0,13,1))
-    colours = np.zeros((3,4))
-    colours[0,:] = colorpalette[5]
-    colours[1,:] = np.array([204/255,1,1,1])
-    colours[2,:] = np.array([0,91/255,1,1])
-    for k in range(0,im_labels.shape[2]):
-        im_class[im_labels[:,:,k],0] = colours[k,0]
-        im_class[im_labels[:,:,k],1] = colours[k,1]
-        im_class[im_labels[:,:,k],2] = colours[k,2]
-        
-    ax2.imshow(im_class)    
+    # panel 2: classification with sand contour overlay
+    ax2.imshow(im_class)
     ax2.axis('off')
-    orange_patch = mpatches.Patch(color=colours[0,:], label='sand')
-    white_patch = mpatches.Patch(color=colours[1,:], label='whitewater')
-    blue_patch = mpatches.Patch(color=colours[2,:], label='water')
-    black_line = mlines.Line2D([],[],color='k',linestyle='-', label='shoreline')
-    ax2.legend(handles=[orange_patch,white_patch,blue_patch, black_line],
-               loc='lower right', fontsize=10)
-    ax2.set_title(date, fontweight='bold', fontsize=16)
-    
-    # create image 3 (closed sand polygon)
+    orange_patch = mpatches.Patch(color=colours[0, :], label='sand')
+    white_patch = mpatches.Patch(color=colours[1, :], label='whitewater')
+    blue_patch = mpatches.Patch(color=colours[2, :], label='water')
+    black_line = mlines.Line2D([], [], color='k', linestyle='-', label='sand boundary')
+    ax2.legend(handles=[orange_patch, white_patch, blue_patch, black_line],
+               bbox_to_anchor=(1, 0.5), fontsize=10)
+    ax2.set_title(date, fontweight='bold', fontsize=12)
+
+    # panel 3 (islands-specific): RGB + detected sand polygon major-axis orientation
     ax3.imshow(im_RGB)
-    for props in regions:                       
+    for props in regions:
         y0, x0 = props.centroid
         orientation = props.orientation
-        x1 = x0 + math.cos(orientation) * 0.5* props.major_axis_length
-        y1 = y0 - math.sin(orientation) * 0.5* props.major_axis_length
-        x2 = x0 - math.cos(orientation) * 0.5* props.major_axis_length
-        y2 = y0 + math.sin(orientation) * 0.5* props.major_axis_length
-        plt.plot((x0, x1), (y0, y1), '-b', linewidth=2.5)
-        plt.plot((x0, x2), (y0, y2), '-b', linewidth=2.5)
-        plt.plot(x0, y0, '.r', markersize=15)
-        # plt.text(50,25,'Orientation = ' + str(round(np.degrees(sand_orientation),2)), color = 'white',fontweight = 'bold')
-    ax3.set_title('Major Axis Orientation')
+        x1 = x0 + math.cos(orientation) * 0.5 * props.major_axis_length
+        y1 = y0 - math.sin(orientation) * 0.5 * props.major_axis_length
+        x2 = x0 - math.cos(orientation) * 0.5 * props.major_axis_length
+        y2 = y0 + math.sin(orientation) * 0.5 * props.major_axis_length
+        ax3.plot((x0, x1), (y0, y1), '-b', linewidth=2.5)
+        ax3.plot((x0, x2), (y0, y2), '-b', linewidth=2.5)
+        ax3.plot(x0, y0, '.r', markersize=15)
+    ax3.set_title(satname, fontweight='bold', fontsize=12)
+
+    ax1.set_anchor('W')
+    ax2.set_anchor('C')
+    ax3.set_anchor('E')
     
     #plot sand contours on each sub plot
     for k in range(len(sand_contours)):
@@ -567,173 +594,145 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
 ###################################################################################################
 
 def calc_island_transects(settings):
-    """ 
-    This code is for calculating transecs radiating from a single point. It uses the 
-    x,y (input) as the origin for the transects and calculates transects of given length
-    and heading (clockwise from North)
-    
-    M Cuttler - 2019
-    UWA
-    
+    """
+    Generate shore-normal transects radiating from the island centre point.
+
+    Wraps SDS_transects.create_transect for each heading so that the transects
+    have 1m-spaced points, consistent with the rest of CoastSat.
+
+    MC UWA 2019
+
     Arguments:
-    ----------
-        x: int or float
-            x-coordinate of transect origin
-        
-        y: int or float
-            y-coordinate of transect origin
-        
-        settings: dict
-            contains transect_length
-        
-        heading: numpy array 
-            defines all headings for transects - angles provided as clockwise from North
-        
-    Return:
-    ---------
-          transects: dict
-            contains the X and Y coordinates of each transect.  
-           
-    """   
-    #create dictionary for output
-    transects = dict([])
-    x = settings['island_center'][0]
-    y = settings['island_center'][1]
-                                     
-    for i,j in enumerate(settings['heading']):
-        
-        #calculate x and y --- could just use create_transect above
-        xx = (math.sin(math.radians(j))*settings['transect_length'])+x
-        yy = (math.cos(math.radians(j))*settings['transect_length'])+y
-        key = str(i+1)
-        transects[key] = np.array([[x, y], [xx, yy]])
-        
-    return transects 
+    -----------
+    settings: dict
+        must contain:
+            'island_center': [x, y] coordinates of the transect origin in output_epsg
+            'transect_length': int, length of each transect in metres
+            'heading': array-like of compass bearings (degrees clockwise from North)
+
+    Returns:
+    -----------
+    transects: dict
+        keyed '1', '2', ... with np.array of (x, y) coordinates at 1m intervals
+    """
+    origin = np.array(settings['island_center'])
+    transects = {}
+    for i, heading in enumerate(settings['heading']):
+        key = str(i + 1)
+        transects[key] = SDS_transects.create_transect(origin, heading, settings['transect_length'])
+    return transects
 
 
 def compute_intersection_islands(output, transects, settings):
     """
-    Computes the intersection between the 2D mapped shorelines and the transects, to generate
-    time-series of cross-shore distance along each transect.
-    
+    Compute the intersection between the 2D sand polygon boundaries (or shorelines)
+    and the shore-normal transects to produce time-series of cross-shore distance.
+
+    Extends SDS_transects.compute_intersection (KV WRL 2018) with additional
+    statistics (mean, max, min, std, point count) stored alongside the median.
+    Uses sand_points from the island polygon extraction when available, falling
+    back to standard CoastSat shorelines otherwise.
+
+    MC UWA 2019
+
     Arguments:
     -----------
-        output: dict
-            contains the extracted shorelines and corresponding dates.
-        transects: dict
-            contains the X and Y coordinates of the transects (first and last point needed for each
-            transect).
-        settings: dict
-            contains parameters defining :
-                along_dist: alongshore distance to caluclate the intersection (median of points 
-                within this distance).      
-        
-    Returns:    
+    output: dict
+        output from extract_sand_poly; must contain 'dates' and either
+        'sand_points' (preferred) or 'shorelines'
+    transects: dict
+        shore-normal transects keyed '1', '2', ...; each value is an (N, 2)
+        array of (x, y) coordinates with the origin at index 0
+    settings: dict
+        must contain 'along_dist': alongshore search half-width in metres
+
+    Returns:
     -----------
-        cross_dist: dict
-            time-series of cross-shore distance along each of the transects. These are not tidally 
-            corrected.
-        
-    """      
-    # Use sand_points (from sand polygon extraction) when available; fall back to
-    # standard CoastSat shorelines otherwise.  This is data-driven: no settings flag needed.
+    cross_dist: dict
+        median cross-shore distance (m) along each transect; not tidally corrected.
+        Also saves a CSV of the time-series to the site data folder.
+    """
+    # use sand polygon boundary points when available; fall back to shorelines
     if 'sand_points' in output and len(output['sand_points']) > 0:
         shorelines = output['sand_points']
     else:
         shorelines = output['shorelines']
-    
-    along_dist = settings['along_dist']
-    
-    # initialise variables
-    chainage_mtx = np.zeros((len(shorelines),len(transects),6))
-    idx_points = []
-    
-    for i in range(len(shorelines)):
-        
-        print('\rCalculating intersections: %d%%' % int((i+1)*100/len(output['dates'])), end='')
 
+    along_dist = settings['along_dist']
+
+    # pre-allocate statistics matrix: [mean, median, max, min, npoints, std]
+    chainage_mtx = np.zeros((len(shorelines), len(transects), 6))
+    idx_points = []
+
+    for i in range(len(shorelines)):
+        print('\rCalculating intersections: %d%%' % int((i+1)*100/len(output['dates'])), end='')
         sl = shorelines[i]
         idx_points_all = []
-        
-        for j,key in enumerate(list(transects.keys())): 
-            
-            # compute rotation matrix
-            X0 = transects[key][0,0]
-            Y0 = transects[key][0,1]
-            temp = np.array(transects[key][-1,:]) - np.array(transects[key][0,:])
+
+        for j, key in enumerate(list(transects.keys())):
+            # compute rotation matrix for this transect
+            X0 = transects[key][0, 0]
+            Y0 = transects[key][0, 1]
+            temp = np.array(transects[key][-1, :]) - np.array(transects[key][0, :])
             phi = np.arctan2(temp[1], temp[0])
-            Mrot = np.array([[np.cos(phi), np.sin(phi)],[-np.sin(phi), np.cos(phi)]])
-    
-            # calculate point to line distance between shoreline points and the transect
-            p1 = np.array([X0,Y0])
-            p2 = transects[key][-1,:]
-            d_line = np.abs(np.cross(p2-p1,sl-p1)/np.linalg.norm(p2-p1))
-            # calculate the distance between shoreline points and the origin of the transect
-            d_origin = np.array([np.linalg.norm(sl[k,:] - p1) for k in range(len(sl))])
-            
-            #####################################################################################
-            # Modified KILIAN
-            # find the shoreline points that are close to the transects and to the origin
-            # the distance to the origin is hard-coded here to 1 km 
+            Mrot = np.array([[np.cos(phi), np.sin(phi)], [-np.sin(phi), np.cos(phi)]])
+
+            # point-to-line distance and distance from transect origin
+            p1 = np.array([X0, Y0])
+            p2 = transects[key][-1, :]
+            d_line = np.abs(np.cross(p2-p1, sl-p1) / np.linalg.norm(p2-p1))
+            d_origin = np.array([np.linalg.norm(sl[k, :] - p1) for k in range(len(sl))])
+
+            # keep points within along_dist of the transect line and within 1 km of origin
             idx_dist = np.logical_and(d_line <= along_dist, d_origin <= 1000)
-            # find the shoreline points that are in the direction of the transect (within 90 degrees)
-            temp_sl = sl - np.array(transects[key][0,:])
-            phi_sl = np.array([np.arctan2(temp_sl[k,1], temp_sl[k,0]) for k in range(len(temp_sl))])
-            diff_angle = (phi - phi_sl)
-            idx_angle = np.abs(diff_angle) < np.pi/2
-            # combine the transects that are close in distance and close in orientation
-            idx_close = np.where(np.logical_and(idx_dist,idx_angle))[0]
-            idx_points_all.append(idx_close)        
-            
-            # in case there are no shoreline points close to the transect 
+            # keep points in the seaward direction of the transect (within 90°)
+            temp_sl = sl - np.array(transects[key][0, :])
+            phi_sl = np.array([np.arctan2(temp_sl[k, 1], temp_sl[k, 0]) for k in range(len(temp_sl))])
+            idx_angle = np.abs(phi - phi_sl) < np.pi/2
+            idx_close = np.where(np.logical_and(idx_dist, idx_angle))[0]
+            idx_points_all.append(idx_close)
+
             if len(idx_close) == 0:
-                chainage_mtx[i,j,:] = np.tile(np.nan,(1,6))
+                chainage_mtx[i, j, :] = np.nan
             else:
-                # change of base to shore-normal coordinate system
-                xy_close = np.array([sl[idx_close,0],sl[idx_close,1]]) - np.tile(np.array([[X0],
-                                   [Y0]]), (1,len(sl[idx_close])))
+                # rotate to shore-normal coordinate system and compute statistics
+                xy_close = np.array([sl[idx_close, 0], sl[idx_close, 1]]) - \
+                           np.tile(np.array([[X0], [Y0]]), (1, len(idx_close)))
                 xy_rot = np.matmul(Mrot, xy_close)
-                    
-                # compute mean, median, max, min and std of chainage position
-                n_points = len(xy_rot[0,:])
-                mean_cross = np.nanmean(xy_rot[0,:])
-                median_cross = np.nanmedian(xy_rot[0,:])
-                max_cross = np.nanmax(xy_rot[0,:])
-                min_cross = np.nanmin(xy_rot[0,:])
-                std_cross = np.nanstd(xy_rot[0,:])
-                # store all statistics
-                chainage_mtx[i,j,:] = np.array([mean_cross, median_cross, max_cross,
-                            min_cross, n_points, std_cross])
-    
-        # store the indices of the shoreline points that were used
+                chainage_mtx[i, j, :] = [np.nanmean(xy_rot[0, :]),
+                                          np.nanmedian(xy_rot[0, :]),
+                                          np.nanmax(xy_rot[0, :]),
+                                          np.nanmin(xy_rot[0, :]),
+                                          len(xy_rot[0, :]),
+                                          np.nanstd(xy_rot[0, :])]
+
         idx_points.append(idx_points_all)
-     
-    # format into dictionnary
-    chainage = dict([])
-    chainage['mean'] = chainage_mtx[:,:,0]
-    chainage['median'] = chainage_mtx[:,:,1]
-    chainage['max'] = chainage_mtx[:,:,2]
-    chainage['min'] = chainage_mtx[:,:,3]
-    chainage['npoints'] = chainage_mtx[:,:,4]
-    chainage['std'] = chainage_mtx[:,:,5]
-    chainage['idx_points'] = idx_points
-        
-    # only return value of mean, median, or max
-    cross_dist = dict([])
-    for j,key in enumerate(list(transects.keys())): 
-        cross_dist[key] = chainage['median'][:,j]    
-    
-    #save cross_distance dictionary to CSV
-    out_dict = dict([])
-    out_dict['dates'] = output['dates']
+
+    # pack statistics (islands-specific extension of v3.3 which returns median only)
+    chainage = {
+        'mean':       chainage_mtx[:, :, 0],
+        'median':     chainage_mtx[:, :, 1],
+        'max':        chainage_mtx[:, :, 2],
+        'min':        chainage_mtx[:, :, 3],
+        'npoints':    chainage_mtx[:, :, 4],
+        'std':        chainage_mtx[:, :, 5],
+        'idx_points': idx_points,
+    }
+
+    # return median cross-shore distance keyed by transect (matches v3.3 cross_dist format)
+    cross_dist = {key: chainage['median'][:, j]
+                  for j, key in enumerate(list(transects.keys()))}
+
+    # save to CSV
+    out_dict = {'dates': output['dates']}
     for key in transects.keys():
-        out_dict['Transect '+ key] = cross_dist[key]
+        out_dict['Transect ' + key] = cross_dist[key]
     df = pd.DataFrame(out_dict)
-    fn = os.path.join(settings['inputs']['filepath'],settings['inputs']['sitename'],
+    fn = os.path.join(settings['inputs']['filepath'], settings['inputs']['sitename'],
                       'transect_time_series.csv')
     df.to_csv(fn, sep=',')
-    print('Time-series of the shoreline change along the transects saved as:\n%s'%fn)   
-    
+    print('Time-series of the shoreline change along the transects saved as:\n%s' % fn)
+
     return cross_dist
 
 
@@ -925,7 +924,7 @@ def tide_correct_sand_polygon(cross_distance_corrected, output_corrected, settin
     output_corrected['sand_centroid_corrected'] = output_sand_centroid
     output_corrected['sand_points_poly_corrected'] = output_sand_points_poly
     
-    # save outputput structure as output.pkl
+    # save output structure as output.pkl
     sitename = settings['inputs']['sitename']
     filepath_data = settings['inputs']['filepath']
     filepath = os.path.join(filepath_data, sitename)
