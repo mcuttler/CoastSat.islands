@@ -36,7 +36,7 @@ import skimage.measure as measure
 import skimage.morphology as morphology
 
 # coastsat modules (from main toolbox)
-from coastsat import SDS_shoreline, SDS_preprocess, SDS_tools
+from coastsat import SDS_shoreline, SDS_preprocess, SDS_tools, SDS_transects
 
 
 ###################################################################################################
@@ -934,8 +934,8 @@ def tide_correct_sand_polygon(cross_distance_corrected, output_corrected, settin
     # save output into a gdb.GeoDataFrame
     gdf = output_to_gdf_poly(output_corrected)
     # set projection
-    gdf.crs = {'init':'epsg:'+str(settings['output_epsg'])}
-    # save as geojson    
+    gdf = gdf.set_crs(epsg=settings['output_epsg'])
+    # save as geojson
     gdf.to_file(os.path.join(filepath, sitename + '_output_tide_corrected.geojson'), driver='GeoJSON', encoding='utf-8')
         
     #export output data to csv file  
@@ -989,7 +989,7 @@ def output_to_gdf_poly(output):
             if counter == 0:
                 gdf_all = gdf
             else:
-                gdf_all = gdf_all.append(gdf)
+                gdf_all = pd.concat([gdf_all, gdf])
             counter = counter + 1
             
     return gdf_all
