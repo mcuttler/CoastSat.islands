@@ -743,170 +743,123 @@ def compute_intersection_islands(output, transects, settings):
 
 def process_tide_data(tide_file, output):
     """
-    function for processing tide data before performing tidal correction. This code finds tide heights
-    at time that correspond to shoreline detections
-    
-    Arguments: 
-    ----------
+    Extract tide heights at the times of satellite acquisitions and remove any
+    images for which no tidal data is available.
+
+    Accepts two tide file formats:
+      - CoastSat standard CSV: columns 'dates' (UTC, parseable by pandas) and 'tide'
+      - Legacy tab-separated: columns [year month day hour min sec z] in WA local
+        time (UTC+8); detected automatically when the file does not end in '.csv'
+
+    Uses SDS_tools.get_closest_datapoint for the time-matching lookup, consistent
+    with the approach used throughout CoastSat.
+
+    KV WRL 2020 (adapted for CoastSat.islands MC 2019)
+
+    Arguments:
+    -----------
+    tide_file: str
+        full path to the tide data file (CSV or legacy tab-separated)
     output: dict
-        data from CoastSat analysis
-        
-    tide_file: full file path and name
-        filepath (including name) for tidal file to process. 
-        should be organized as [year month day hour min sec z]
-    
+        output dictionary from extract_sand_poly
+
     Returns:
-    ---------
-    tide: np.array
-        contains tide height at dates correponding to detected shorelines 
+    -----------
+    tide_sat: np.array
+        tide height at each satellite acquisition date (NaN where no data)
+    output_corrected: dict
+        copy of output filtered to only the images that have valid tide data,
+        with an additional 'tide' key containing the matched tide heights
     """
-    output_corrected = dict([])
-    
-    # import data from tide file
-    tideraw = pd.read_csv(tide_file, sep='\t')
-    tideraw = tideraw.values
+    # --- read tide file ---
+    if tide_file.endswith('.csv'):
+        # CoastSat standard format: 'dates' (UTC) and 'tide' columns
+        tide_df = pd.read_csv(tide_file, parse_dates=['dates'])
+        dates_ts = [_.to_pydatetime() for _ in tide_df['dates']]
+        tides_ts = np.array(tide_df['tide'])
+    else:
+        # Legacy tab-separated format: [year month day hour min sec z] in WA local time (UTC+8)
+        tideraw = pd.read_csv(tide_file, sep='\t').values
+        dates_ts = []
+        tides_ts = []
+        for row in tideraw:
+            t = datetime(int(row[0]), int(row[1]), int(row[2]),
+                         int(row[3]), int(row[4]), int(row[5]))
+            t = datetime.fromtimestamp(datetime.timestamp(t), tz=timezone.utc)
+            dates_ts.append(t)
+            tides_ts.append(row[-1])
+        tides_ts = np.array(tides_ts)
 
-    #create tide_data dictionary    
-    tide_data = {'dates': [], 'tide': []}
+    # --- match tide to each satellite acquisition ---
+    tide_sat = SDS_tools.get_closest_datapoint(output['dates'], dates_ts, tides_ts)
 
-    for i,row in enumerate(tideraw):
-        #convert tide time to UTC from WA local time (UTC+8 hrs)
-        dumtime = datetime(int(row[0]), int(row[1]), int(row[2]), int(row[3]), int(row[4]), int(row[5]))
-        dumtime = datetime.timestamp(dumtime)
-        dumtime = datetime.fromtimestamp(dumtime,tz=timezone.utc)
-        tide_data['dates'].append(dumtime)
-        tide_data['tide'].append(row[-1])
-    
-    # extract tide heights corresponding to shoreline detections
-    tide_out = []
-    def find(item, lst):
-        start = 0
-        start = lst.index(item, start)
-        return start
-    
-    for i,date in enumerate(output['dates']):
-        print('\rCalculating tides: %d%%' % int((i+1)*100/len(output['dates'])), end='')
-        tide_out.append(tide_data['tide'][find(min(item for item in tide_data['dates'] if item > date), tide_data['dates'])])
-          
-    tide_out = np.array(tide_out)
-    #determine all values where no tidal data exists
-    tide_nanidx = np.argwhere(~np.isnan(tide_out))
-    
-    #remove data from everywhere when no tidal data exists
-    cloud_cover = []
-    dates = []
-    filename = []
-    geoaccuracy = []
-    idx = []
-    sand_area = []
-    sand_centroid = []
-    sand_eccentricity = []
-    sand_orientation = []
-    sand_perimeter = []
-    sand_points = []
-    satname = []
-    shorelines = []
-    tide = []
-    
-    for i,j in enumerate(tide_nanidx):                
-        cloud_cover.append(output['cloud_cover'][int(tide_nanidx[i])])
-        dates.append(output['dates'][int(tide_nanidx[i])])
-        filename.append(output['filename'][int(tide_nanidx[i])])
-        geoaccuracy.append(output['geoaccuracy'][int(tide_nanidx[i])])
-        idx.append(output['idx'][int(tide_nanidx[i])])
-        sand_area.append(output['sand_area'][int(tide_nanidx[i])])
-        sand_centroid.append(output['sand_centroid'][int(tide_nanidx[i])])
-        sand_eccentricity.append(output['sand_eccentricity'][int(tide_nanidx[i])])
-        sand_orientation.append(output['sand_orientation'][int(tide_nanidx[i])])
-        sand_perimeter.append(output['sand_perimeter'][int(tide_nanidx[i])])
-        sand_points.append(output['sand_points'][int(tide_nanidx[i])])
-        satname.append(output['satname'][int(tide_nanidx[i])])
-        shorelines.append(output['shorelines'][int(tide_nanidx[i])])
-        tide.append(tide_out[int(tide_nanidx[i])])
-    
-    output_corrected = {'cloud_cover': cloud_cover, 
-                        'dates': dates,
-                        'filename': filename, 
-                        'geoaccuracy': geoaccuracy,
-                        'idx': idx, 
-                        'sand_area': sand_area,
-                        'sand_centroid': sand_centroid,
-                        'sand_eccentricity': sand_eccentricity,
-                        'sand_orientation': sand_orientation,
-                        'sand_perimeter': sand_perimeter,
-                        'sand_points': sand_points,
-                        'satname': satname,
-                        'shorelines': shorelines,
-                        'tide': tide}
-    
-    return tide_out, output_corrected
+    # --- filter output to images that have valid tide data ---
+    idx_valid = np.where(~np.isnan(tide_sat))[0]
+    output_corrected = {key: [output[key][i] for i in idx_valid]
+                        for key in output.keys()}
+    output_corrected['tide'] = [tide_sat[i] for i in idx_valid]
+
+    return tide_sat, output_corrected
 
 
 def tide_correct(cross_distance, tide, output, transects, settings):
     """
-    Function for tide-correcting shoreline position time series returned by SDS_transects.compute_intersection
-    
+    Tidally correct cross-shore distances using the linear slope method:
+
+        correction = (zref - tide) / beach_slope
+        cross_distance_corrected = cross_distance + correction
+
+    where zref is the reference datum height (e.g. 0 m AHD) and beach_slope is
+    positive (the sign convention is handled internally so that a tide above zref
+    shifts the shoreline seaward and vice versa).
+
+    Consistent with CoastSat v3.3 (KV WRL 2020), adapted for CoastSat.islands (MC 2019).
+
     Arguments:
     -----------
-        cross_distance: dict
-            contains the intersection points of satellite-derived shorelines and user-defined transects
-        
-        tide: numpy array
-            timeseries of tidal elevations 
-        
-        zref: int
-            reference level of height datum - e.g. 0 m AHD
-        
-        beta: int
-            beach slope
-    
+    cross_distance: dict
+        cross-shore distances along transects from compute_intersection_islands
+    tide: np.array
+        tide heights at satellite acquisition times (from process_tide_data)
+    output: dict
+        output dict (dates used when writing the CSV)
+    transects: dict
+        transect definitions
+    settings: dict
+        must contain 'beach_slope' (positive float) and 'zref' (reference datum, m)
+
     Returns:
-    ----------
-        cross_distance_tide_corrected: dict
-            contains the tide corrected shoreline-transect intersections
+    -----------
+    cross_distance_corrected: dict
+        tidally corrected cross-shore distances, one array per transect key
     """
-    cross_distance_corrected = dict([])
-    #Check that length of tide time series is same as SDS timeseries
-    #Cross distance should have at least 1 transect
-    if len(cross_distance['1'])==len(tide):
-        #Cycle through all transects
-        for key,transect in cross_distance.items():
-            transect_corrected = []               
-            for i,ztide in enumerate(tide):
-                if np.isnan(ztide):
-                    continue
-                else:
-                    #calculate horizontal correction, assume negative slope so that
-                    #if reference datum is above tidal height, shoreline position is shifted
-                    #landwards; if reference dateum is below tidal height, shoreline 
-                    # position is shifted seawards 
-                    dbeta = settings['beach_slope']
-                    if dbeta<0:
-                        beta = settings['beach_slope']
-                    else:
-                        beta = -settings['beach_slope']
-                        
-                    delX = (settings['zref']-ztide)/beta          
-                    transect_corrected.append(transect[i]+delX)
-                               
-            transect_corrected = np.array(transect_corrected)
-            cross_distance_corrected[key] = transect_corrected
-            
-        #save cross_distance dictionary to CSV
-        out_dict = dict([])
-        out_dict['dates'] = output['dates']
-        
-        for key in transects.keys():
-            out_dict['Transect '+ key] = cross_distance_corrected[key]
-        df = pd.DataFrame(out_dict)
-        fn = os.path.join(settings['inputs']['filepath'],settings['inputs']['sitename'],
+    beach_slope = abs(settings['beach_slope'])   # enforce positive; sign handled below
+    zref = settings['zref']
+    tide = np.array(tide)
+
+    # sanity check
+    n_obs = len(output['dates'])
+    if len(tide) != n_obs:
+        raise ValueError(
+            f'Length mismatch: {n_obs} dates in output but {len(tide)} tide values. '
+            'Make sure to run process_tide_data before tide_correct.')
+
+    # vectorised correction across all transects
+    # positive correction = seaward shift (tide below zref moves shoreline seaward)
+    correction = (tide - zref) / beach_slope
+    cross_distance_corrected = {}
+    for key in cross_distance.keys():
+        cross_distance_corrected[key] = cross_distance[key] + correction
+
+    # save to CSV
+    out_dict = {'dates': output['dates']}
+    for key in transects.keys():
+        out_dict['Transect ' + key] = cross_distance_corrected[key]
+    df = pd.DataFrame(out_dict)
+    fn = os.path.join(settings['inputs']['filepath'], settings['inputs']['sitename'],
                       'transect_time_series_corrected.csv')
-        df.to_csv(fn, sep=',')
-        print('Time-series of the shoreline change along the transects saved as:\n%s'%fn)   
-    
-        
-    else:
-        print('ERROR - time series not same lenght!')
+    df.to_csv(fn, sep=',')
+    print('Time-series of the shoreline change along the transects saved as:\n%s' % fn)
 
     return cross_distance_corrected
 
