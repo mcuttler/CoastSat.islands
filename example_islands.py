@@ -81,7 +81,7 @@ settings = {
     # Main switch — set to True to also extract the vegetation polygon.   #
     # Sand detection and all sand outputs are always produced.            #
     # ------------------------------------------------------------------ #
-    'track_veg': False,              # True = extract vegetation polygon alongside sand
+    'track_veg': True,              # True = extract vegetation polygon alongside sand
 
     # --- general ---
     'cloud_thresh': 0.5,             # maximum cloud cover fraction (0–1)
@@ -260,6 +260,10 @@ plt.tight_layout()
 settings['along_dist'] = 10
 cross_distance = SDS_islands.compute_intersection_islands(output, transects, settings)
 
+# intersect transects with vegetation boundary → cross-shore distance time-series
+if settings.get('track_veg', False):
+    cross_distance_veg = SDS_islands.compute_intersection_veg(output, transects, settings)
+
 
 #%% 10. Tidal correction
 
@@ -317,3 +321,5 @@ cross_distance_corrected = SDS_islands.tide_correct(
     cross_distance, tides_sat, output, transects, settings)
 output_corrected = SDS_islands.tide_correct_sand_polygon(
     cross_distance_corrected, output_corrected, settings)
+
+# %%
