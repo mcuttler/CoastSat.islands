@@ -36,7 +36,7 @@ import skimage.measure as measure
 import skimage.morphology as morphology
 
 # coastsat modules (from main toolbox)
-from coastsat import SDS_shoreline, SDS_preprocess, SDS_tools, SDS_transects
+from coastsat import SDS_shoreline, SDS_preprocess, SDS_tools, SDS_transects, SDS_vegline
 
 
 ###################################################################################################
@@ -112,7 +112,15 @@ def extract_sand_poly(metadata, settings):
         output_sand_centroid = []   #coordinates center of mass of sandy pixels
         output_sand_points = []     #coordinates of sandy pixels
         output_sand_eccentricity = [] #measure of sand area eccentricity
-        output_sand_orientation = []  #orientation of major axis        
+        output_sand_orientation = []  #orientation of major axis
+        # vegetation fields (only populated when settings.get('track_veg', False))
+        output_veg_area = []
+        output_veg_perimeter = []
+        output_veg_centroid = []
+        output_veg_points = []
+        output_veg_eccentricity = []
+        output_veg_orientation = []
+        output_ndvi_threshold = []
 
         # load classifiers and convert settings['min_beach_area'] and settings['buffer_size']
         # from metres to pixels  
@@ -270,8 +278,37 @@ def extract_sand_poly(metadata, settings):
                 sand_eccentricity = regions[0]['eccentricity']
                 sand_orientation = regions[0]['orientation']
             #######################################################################################
-            #######################################################################################            
-            
+            #######################################################################################
+
+            #######################################################################################
+            # VEGETATION POLYGON (optional — only when settings['track_veg'] is True)
+            #######################################################################################
+            if settings.get('track_veg', False):
+                veg_contour, ndvi_thresh, im_veg_binary = \
+                    SDS_vegline.find_veg_polygon(im_ms, cloud_mask, settings)
+                if veg_contour is not None:
+                    # pixel (row,col) → native image world coords → output_epsg
+                    # mirrors the sand polygon pipeline exactly
+                    veg_coords_world = SDS_tools.convert_pix2world(veg_contour, georef)
+                    veg_coords = SDS_tools.convert_epsg(
+                        veg_coords_world, image_epsg, settings['output_epsg'])
+                    veg_coords_clean = veg_coords[~np.isnan(veg_coords[:, 0])]
+                    try:
+                        veg_ring = LinearRing(veg_coords_clean)
+                        veg_polygon_world = Polygon(shell=veg_ring, holes=None)
+                        if not veg_polygon_world.is_valid:
+                            veg_polygon_world = veg_polygon_world.buffer(0)
+                    except Exception:
+                        veg_polygon_world = None
+                else:
+                    veg_polygon_world = None
+                veg_metrics = SDS_vegline.compute_veg_metrics(veg_polygon_world, im_veg_binary)
+                veg_points = (np.array(veg_polygon_world.exterior.coords)
+                              if veg_polygon_world is not None and not veg_polygon_world.is_empty
+                              else None)
+            #######################################################################################
+            #######################################################################################
+
             # if a reference shoreline is provided, only map the contours that are within a distance
             # of the reference shoreline. For this, first create a buffer around the ref shoreline
             im_ref_buffer = np.ones(cloud_mask.shape).astype(bool)
@@ -338,7 +375,16 @@ def extract_sand_poly(metadata, settings):
             output_sand_points.append(sand_points)
             output_sand_eccentricity.append(sand_eccentricity)
             output_sand_orientation.append(sand_orientation)
-            
+            # vegetation fields
+            if settings.get('track_veg', False):
+                output_veg_area.append(veg_metrics['veg_area'])
+                output_veg_perimeter.append(veg_metrics['veg_perimeter'])
+                output_veg_centroid.append(veg_metrics['veg_centroid'])
+                output_veg_points.append(veg_points)
+                output_veg_eccentricity.append(veg_metrics['veg_eccentricity'])
+                output_veg_orientation.append(veg_metrics['veg_orientation'])
+                output_ndvi_threshold.append(ndvi_thresh)
+
         # create output dictionary (superset of v3.3 extract_shorelines; adds island-specific fields)
         output[satname] = {
                 'dates': output_timestamp,
@@ -354,6 +400,16 @@ def extract_sand_poly(metadata, settings):
                 'sand_eccentricity': output_sand_eccentricity,
                 'sand_orientation': output_sand_orientation,
                 }
+        if settings.get('track_veg', False):
+            output[satname].update({
+                'veg_area': output_veg_area,
+                'veg_perimeter': output_veg_perimeter,
+                'veg_centroid': output_veg_centroid,
+                'veg_points': output_veg_points,
+                'veg_eccentricity': output_veg_eccentricity,
+                'veg_orientation': output_veg_orientation,
+                'ndvi_threshold': output_ndvi_threshold,
+            })
         print('')
 
     # close figure window if still open
@@ -935,7 +991,7 @@ def tide_correct_sand_polygon(cross_distance_corrected, output_corrected, settin
     gdf = output_to_gdf_poly(output_corrected)
     # set projection
     gdf = gdf.set_crs(epsg=settings['output_epsg'])
-    # save as geojson    
+    # save as geojson
     gdf.to_file(os.path.join(filepath, sitename + '_output_tide_corrected.geojson'), driver='GeoJSON', encoding='utf-8')
         
     #export output data to csv file  
