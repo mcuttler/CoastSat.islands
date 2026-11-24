@@ -65,13 +65,21 @@ def compute_ndvi(im_ms, cloud_mask):
 # Thresholding
 # ---------------------------------------------------------------------------
 
-def threshold_ndvi(im_ndvi, cloud_mask, min_veg_area=500):
+def threshold_ndvi(im_ndvi, cloud_mask, min_veg_area=500,
+                   ndvi_floor=0.1, ndvi_ceiling=0.25):
     """
     Find the optimal NDVI threshold to separate vegetation from non-vegetation
     using Otsu's method on the valid (non-cloud) pixels.
 
-    A floor of 0.1 is applied so that bare sand or water never counts as
-    vegetation even if Otsu lands below that value.
+    The Otsu threshold is clamped between ndvi_floor and ndvi_ceiling:
+      - floor   (default 0.10): prevents sand/water from counting as vegetation
+                                when Otsu lands too low.
+      - ceiling (default 0.25): prevents sparse vegetation from being missed
+                                when the NDVI histogram is dominated by sand
+                                and Otsu climbs too high.
+
+    Neither bound affects the sand/water NN classifier — this function is
+    called only for vegetation detection.
 
     Parameters
     ----------
@@ -81,6 +89,10 @@ def threshold_ndvi(im_ndvi, cloud_mask, min_veg_area=500):
         Cloud mask.
     min_veg_area : int
         Minimum vegetated pixel count required; returns empty mask if fewer.
+    ndvi_floor : float
+        Minimum allowed Otsu threshold (default 0.1).
+    ndvi_ceiling : float
+        Maximum allowed Otsu threshold (default 0.25).
 
     Returns
     -------
@@ -97,9 +109,10 @@ def threshold_ndvi(im_ndvi, cloud_mask, min_veg_area=500):
 
     try:
         thresh = float(filters.threshold_otsu(ndvi_vals))
-        thresh = max(thresh, 0.1)   # floor: sand/water NDVI is typically < 0.1
+        thresh = max(thresh, ndvi_floor)    # floor:   don't go below this
+        thresh = min(thresh, ndvi_ceiling)  # ceiling: don't go above this
     except Exception:
-        thresh = 0.3                # safe fallback
+        thresh = ndvi_floor                 # safe fallback
 
     im_veg = (im_ndvi > thresh) & valid
 
@@ -113,15 +126,16 @@ def threshold_ndvi(im_ndvi, cloud_mask, min_veg_area=500):
 # Core polygon detection
 # ---------------------------------------------------------------------------
 
-def find_veg_polygon(im_ms, cloud_mask, settings):
+def find_veg_polygon(im_ms, cloud_mask, settings, sand_mask=None):
     """
     Extract the vegetation polygon from a multi-spectral image.
 
     Steps:
       1. Compute NDVI.
       2. Threshold (auto Otsu or fixed value from settings).
-      3. Morphological cleaning (remove small objects, fill holes).
-      4. Find the largest contour → Shapely Polygon in *pixel* coordinates.
+      3. Optionally constrain to sand_mask (prevents offshore NDVI bleed).
+      4. Morphological cleaning (remove small objects, fill holes).
+      5. Find the largest contour → pixel-space contour (row, col).
 
     Parameters
     ----------
@@ -129,8 +143,13 @@ def find_veg_polygon(im_ms, cloud_mask, settings):
     cloud_mask : ndarray  bool
     settings : dict
         Relevant keys:
-          'min_veg_area' : int   minimum vegetated area in pixels (default 500)
-          'veg_thresh'   : float or 'auto'   NDVI threshold (default 'auto')
+          'min_veg_area'       : int   minimum vegetated area in pixels (default 500)
+          'veg_thresh'         : float or 'auto'   NDVI threshold (default 'auto')
+          'ndvi_floor'         : float  Otsu lower clamp (default 0.10)
+          'ndvi_thresh_ceiling': float  Otsu upper clamp (default 0.25)
+    sand_mask : ndarray bool or None
+        When provided, NDVI hits outside the sand polygon are discarded.
+        Prevents vegetation being detected in surf / open water.
 
     Returns
     -------
@@ -148,11 +167,19 @@ def find_veg_polygon(im_ms, cloud_mask, settings):
     im_ndvi = compute_ndvi(im_ms, cloud_mask)
 
     if veg_thresh_setting == 'auto':
-        ndvi_thresh, im_veg = threshold_ndvi(im_ndvi, cloud_mask, min_veg_area)
+        ndvi_thresh, im_veg = threshold_ndvi(
+            im_ndvi, cloud_mask, min_veg_area,
+            ndvi_floor=settings.get('ndvi_floor', 0.1),
+            ndvi_ceiling=settings.get('ndvi_thresh_ceiling', 0.25),
+        )
     else:
         ndvi_thresh = float(veg_thresh_setting)
         valid = ~cloud_mask & ~np.isnan(im_ndvi)
         im_veg = (im_ndvi > ndvi_thresh) & valid
+
+    # --- constrain to sand polygon (prevents offshore NDVI bleed) ---
+    if sand_mask is not None:
+        im_veg = im_veg & sand_mask
 
     _empty = np.zeros(cloud_mask.shape, dtype=bool)
 
