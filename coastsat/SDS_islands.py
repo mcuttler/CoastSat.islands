@@ -290,6 +290,7 @@ def extract_sand_poly(metadata, settings):
             #              ndvi_thresh_ceiling, constrained to sand polygon.
             #######################################################################################
             if settings.get('track_veg', False):
+                ndvi_thresh = np.nan   # only set by the ndvi path; NaN otherwise
                 _veg_method = settings.get('veg_method', 'unclassified')
                 if _veg_method == 'ndvi':
                     veg_contour, ndvi_thresh, im_veg_binary = \
