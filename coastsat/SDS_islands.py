@@ -592,8 +592,7 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
         green_patch = mpatches.Patch(color=(0.0, 0.65, 0.0), label='vegetation')
         green_line = mlines.Line2D([], [], color='lime', linestyle='-', label='veg boundary')
         legend_handles += [green_patch, green_line]
-    ax2.legend(handles=legend_handles, loc='lower left', fontsize=9, ncol=2,
-               framealpha=0.85, edgecolor='gray')
+    ax2.legend(handles=legend_handles, bbox_to_anchor=(1, 0.5), fontsize=10)
     ax2.set_title(date, fontweight='bold', fontsize=12)
 
     # panel 3 (islands-specific): RGB + detected sand polygon major-axis orientation
@@ -601,10 +600,13 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
     for props in regions:
         y0, x0 = props.centroid
         orientation = props.orientation
-        x1 = x0 + math.cos(orientation) * 0.5 * props.major_axis_length
-        y1 = y0 - math.sin(orientation) * 0.5 * props.major_axis_length
-        x2 = x0 - math.cos(orientation) * 0.5 * props.major_axis_length
-        y2 = y0 + math.sin(orientation) * 0.5 * props.major_axis_length
+        # skimage orientation = angle from row-axis (vertical) CCW to major axis.
+        # Major-axis endpoint formula (from skimage docs): dx = -sin(θ), dy = -cos(θ).
+        # (cos/sin gives the MINOR axis direction — do not use for major axis.)
+        x1 = x0 - math.sin(orientation) * 0.5 * props.major_axis_length
+        y1 = y0 - math.cos(orientation) * 0.5 * props.major_axis_length
+        x2 = x0 + math.sin(orientation) * 0.5 * props.major_axis_length
+        y2 = y0 + math.cos(orientation) * 0.5 * props.major_axis_length
         ax3.plot((x0, x1), (y0, y1), '-b', linewidth=2.5)
         ax3.plot((x0, x2), (y0, y2), '-b', linewidth=2.5)
         ax3.plot(x0, y0, '.r', markersize=15)
@@ -614,12 +616,22 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
         veg_regions = measure.regionprops(veg_label_img)
         if veg_regions:
             veg_props = veg_regions[np.argmax([r.area for r in veg_regions])]
+            # DEBUG: report mask geometry so we can verify what regionprops sees
+            _bbox = veg_props.bbox   # (min_row, min_col, max_row, max_col)
+            _ns = _bbox[2] - _bbox[0]; _ew = _bbox[3] - _bbox[1]
+            print(f"[VEG DEBUG] {date} {satname}: "
+                  f"total_veg_px={np.sum(im_veg_binary)}  "
+                  f"largest_region_area={veg_props.area:.0f}  "
+                  f"bbox NS={_ns}px EW={_ew}px  "
+                  f"major={veg_props.major_axis_length:.1f}  "
+                  f"minor={veg_props.minor_axis_length:.1f}  "
+                  f"orientation={math.degrees(veg_props.orientation):.1f}deg")
             y0v, x0v = veg_props.centroid
             orient_v = veg_props.orientation
-            x1v = x0v + math.cos(orient_v) * 0.5 * veg_props.major_axis_length
-            y1v = y0v - math.sin(orient_v) * 0.5 * veg_props.major_axis_length
-            x2v = x0v - math.cos(orient_v) * 0.5 * veg_props.major_axis_length
-            y2v = y0v + math.sin(orient_v) * 0.5 * veg_props.major_axis_length
+            x1v = x0v - math.sin(orient_v) * 0.5 * veg_props.major_axis_length
+            y1v = y0v - math.cos(orient_v) * 0.5 * veg_props.major_axis_length
+            x2v = x0v + math.sin(orient_v) * 0.5 * veg_props.major_axis_length
+            y2v = y0v + math.cos(orient_v) * 0.5 * veg_props.major_axis_length
             ax3.plot((x0v, x1v), (y0v, y1v), '-g', linewidth=2.5)
             ax3.plot((x0v, x2v), (y0v, y2v), '-g', linewidth=2.5)
             ax3.plot(x0v, y0v, '.g', markersize=15)
@@ -629,14 +641,23 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
     ax2.set_anchor('C')
     ax3.set_anchor('E')
     
-    # sand contours on ax1 (RGB) and ax2 (classification)
+    #plot sand contours on each sub plot
     for k in range(len(sand_contours)):
-        ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
-        ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)
-    # vegetation contour on ax1 (RGB) and ax2 (classification)
-    if veg_contour is not None:
-        ax1.plot(veg_contour[:, 1], veg_contour[:, 0], 'g-', linewidth=1.5)
-        ax2.plot(veg_contour[:, 1], veg_contour[:, 0], '-', color='lime', linewidth=1.5)
+#                ax3.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
+                ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
+                ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)
+
+    # vegetation contour on ax1 (RGB) and ax2 (classification overlay)
+    # veg_contour can be None when find_contours returned empty even though im_veg_binary
+    # has pixels (e.g. region fully fills the array bounds), so derive it here as fallback.
+    _draw_veg_contour = veg_contour
+    if _draw_veg_contour is None and im_veg_binary is not None and np.any(im_veg_binary):
+        _veg_ctrs = measure.find_contours(im_veg_binary.astype(float), 0.5)
+        if _veg_ctrs:
+            _draw_veg_contour = _veg_ctrs[np.argmax([len(c) for c in _veg_ctrs])]
+    if _draw_veg_contour is not None:
+        ax1.plot(_draw_veg_contour[:, 1], _draw_veg_contour[:, 0], 'g-', linewidth=1.5)
+        ax2.plot(_draw_veg_contour[:, 1], _draw_veg_contour[:, 0], '-', color='lime', linewidth=1.5)
 
     # if check_detection is True, let user manually accept/reject the images.
     # Uses standard CoastSat 'check_detection' key (not deprecated 'check_detection_sand_poly').
