@@ -607,6 +607,21 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
         ax3.plot((x0, x1), (y0, y1), '-b', linewidth=2.5)
         ax3.plot((x0, x2), (y0, y2), '-b', linewidth=2.5)
         ax3.plot(x0, y0, '.r', markersize=15)
+    # vegetation centroid + orientation overlay (green, same geometry as sand in blue)
+    if im_veg_binary is not None and np.any(im_veg_binary):
+        veg_label_img = measure.label(im_veg_binary)
+        veg_regions = measure.regionprops(veg_label_img)
+        if veg_regions:
+            veg_props = veg_regions[np.argmax([r.area for r in veg_regions])]
+            y0v, x0v = veg_props.centroid
+            orient_v = veg_props.orientation
+            x1v = x0v + math.cos(orient_v) * 0.5 * veg_props.major_axis_length
+            y1v = y0v - math.sin(orient_v) * 0.5 * veg_props.major_axis_length
+            x2v = x0v - math.cos(orient_v) * 0.5 * veg_props.major_axis_length
+            y2v = y0v + math.sin(orient_v) * 0.5 * veg_props.major_axis_length
+            ax3.plot((x0v, x1v), (y0v, y1v), '-g', linewidth=2.5)
+            ax3.plot((x0v, x2v), (y0v, y2v), '-g', linewidth=2.5)
+            ax3.plot(x0v, y0v, '.g', markersize=15)
     ax3.set_title(satname, fontweight='bold', fontsize=12)
 
     ax1.set_anchor('W')
