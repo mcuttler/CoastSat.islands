@@ -436,7 +436,8 @@ def extract_sand_poly(metadata, settings):
 
 
 def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_binary_sand_closed, sand_contours,
-                             settings, date, satname, regions):
+                             settings, date, satname, regions,
+                             veg_contour=None, im_veg_binary=None):
     """
     Show the detected sand polygon and its boundary to the user for visual quality control.
     The user can accept or reject each detection using keep/skip buttons.
@@ -507,6 +508,12 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
     im_RGB = np.where(np.isnan(im_RGB), nan_color, im_RGB)
     im_class = np.where(np.isnan(im_class), 1.0, im_class)
 
+    # vegetation overlay: paint detected veg pixels green on the classification panel
+    if im_veg_binary is not None and np.any(im_veg_binary):
+        im_class[im_veg_binary, 0] = 0.0
+        im_class[im_veg_binary, 1] = 0.65
+        im_class[im_veg_binary, 2] = 0.0
+
     if plt.get_fignums():
         # reuse open figure
         fig = plt.gcf()
@@ -562,8 +569,12 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
     white_patch = mpatches.Patch(color=colours[1, :], label='whitewater')
     blue_patch = mpatches.Patch(color=colours[2, :], label='water')
     black_line = mlines.Line2D([], [], color='k', linestyle='-', label='sand boundary')
-    ax2.legend(handles=[orange_patch, white_patch, blue_patch, black_line],
-               bbox_to_anchor=(1, 0.5), fontsize=10)
+    legend_handles = [orange_patch, white_patch, blue_patch, black_line]
+    if im_veg_binary is not None and np.any(im_veg_binary):
+        green_patch = mpatches.Patch(color=(0.0, 0.65, 0.0), label='vegetation')
+        green_line = mlines.Line2D([], [], color='lime', linestyle='-', label='veg boundary')
+        legend_handles += [green_patch, green_line]
+    ax2.legend(handles=legend_handles, bbox_to_anchor=(1, 0.5), fontsize=10)
     ax2.set_title(date, fontweight='bold', fontsize=12)
 
     # panel 3 (islands-specific): RGB + detected sand polygon major-axis orientation
@@ -790,6 +801,112 @@ def compute_intersection_islands(output, transects, settings):
     print('Time-series of the shoreline change along the transects saved as:\n%s' % fn)
 
     return cross_dist
+
+
+def compute_intersection_veg(output, transects, settings):
+    """
+    Compute the intersection between vegetation boundary points and shore-normal
+    transects to produce time-series of cross-shore distance to the veg line.
+
+    Mirrors compute_intersection_islands but reads 'veg_points' from output.
+    Images where no vegetation was detected (veg_points entry is None) yield
+    NaN for all transects on that date.
+
+    MC UWA 2024
+
+    Arguments:
+    -----------
+    output: dict
+        merged output from extract_sand_poly with track_veg=True; must contain
+        'dates' and 'veg_points' (list of Nx2 world-coord arrays or None)
+    transects: dict
+        shore-normal transects keyed '1', '2', ...; each value is an (N, 2)
+        array of (x, y) coordinates with the origin at index 0
+    settings: dict
+        must contain 'along_dist': alongshore search half-width in metres
+
+    Returns:
+    -----------
+    cross_dist_veg: dict
+        median cross-shore distance (m) to the vegetation line along each
+        transect.  Also saves a CSV to the site data folder.
+    """
+    veg_lines = output.get('veg_points', [])
+    if not veg_lines:
+        print('No veg_points found in output — skipping veg transect intersections.')
+        return {}
+
+    along_dist = settings['along_dist']
+    n_images = len(veg_lines)
+    n_transects = len(transects)
+
+    # pre-allocate statistics matrix: [mean, median, max, min, npoints, std]
+    chainage_mtx = np.zeros((n_images, n_transects, 6))
+    idx_points = []
+
+    for i in range(n_images):
+        print('\rCalculating veg intersections: %d%%' % int((i + 1) * 100 / n_images), end='')
+        sl = veg_lines[i]
+        idx_points_all = []
+
+        # images with no detected vegetation → NaN row for every transect
+        if sl is None or (hasattr(sl, '__len__') and len(sl) == 0):
+            chainage_mtx[i, :, :] = np.nan
+            idx_points.append([np.array([], dtype=int)] * n_transects)
+            continue
+
+        sl = np.array(sl)
+
+        for j, key in enumerate(list(transects.keys())):
+            X0 = transects[key][0, 0]
+            Y0 = transects[key][0, 1]
+            temp = np.array(transects[key][-1, :]) - np.array(transects[key][0, :])
+            phi = np.arctan2(temp[1], temp[0])
+            Mrot = np.array([[np.cos(phi), np.sin(phi)], [-np.sin(phi), np.cos(phi)]])
+
+            p1 = np.array([X0, Y0])
+            p2 = transects[key][-1, :]
+            d_line = np.abs(np.cross(p2 - p1, sl - p1) / np.linalg.norm(p2 - p1))
+            d_origin = np.array([np.linalg.norm(sl[k, :] - p1) for k in range(len(sl))])
+
+            idx_dist = np.logical_and(d_line <= along_dist, d_origin <= 1000)
+            temp_sl = sl - np.array(transects[key][0, :])
+            phi_sl = np.array([np.arctan2(temp_sl[k, 1], temp_sl[k, 0]) for k in range(len(temp_sl))])
+            idx_angle = np.abs(phi - phi_sl) < np.pi / 2
+            idx_close = np.where(np.logical_and(idx_dist, idx_angle))[0]
+            idx_points_all.append(idx_close)
+
+            if len(idx_close) == 0:
+                chainage_mtx[i, j, :] = np.nan
+            else:
+                xy_close = np.array([sl[idx_close, 0], sl[idx_close, 1]]) - \
+                           np.tile(np.array([[X0], [Y0]]), (1, len(idx_close)))
+                xy_rot = np.matmul(Mrot, xy_close)
+                chainage_mtx[i, j, :] = [np.nanmean(xy_rot[0, :]),
+                                          np.nanmedian(xy_rot[0, :]),
+                                          np.nanmax(xy_rot[0, :]),
+                                          np.nanmin(xy_rot[0, :]),
+                                          len(xy_rot[0, :]),
+                                          np.nanstd(xy_rot[0, :])]
+
+        idx_points.append(idx_points_all)
+
+    print('')  # newline after progress
+
+    cross_dist_veg = {key: chainage_mtx[:, j, 1]
+                      for j, key in enumerate(list(transects.keys()))}
+
+    # save to CSV
+    out_dict = {'dates': output['dates']}
+    for key in transects.keys():
+        out_dict['Transect ' + key] = cross_dist_veg[key]
+    df = pd.DataFrame(out_dict)
+    fn = os.path.join(settings['inputs']['filepath'], settings['inputs']['sitename'],
+                      'veg_transect_time_series.csv')
+    df.to_csv(fn, sep=',')
+    print('Time-series of the vegetation line change along the transects saved as:\n%s' % fn)
+
+    return cross_dist_veg
 
 
 ###################################################################################################
