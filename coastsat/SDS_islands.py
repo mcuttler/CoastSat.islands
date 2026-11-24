@@ -282,10 +282,23 @@ def extract_sand_poly(metadata, settings):
 
             #######################################################################################
             # VEGETATION POLYGON (optional — only when settings['track_veg'] is True)
+            #
+            # veg_method = 'unclassified' (default): vegetation = NN-unclassified pixels
+            #              inside the sand polygon.  Fast, no NDVI needed.  Interim
+            #              approach until vegetation is added as an explicit NN class.
+            # veg_method = 'ndvi': Otsu-thresholded NDVI, clamped by ndvi_floor /
+            #              ndvi_thresh_ceiling, constrained to sand polygon.
             #######################################################################################
             if settings.get('track_veg', False):
-                veg_contour, ndvi_thresh, im_veg_binary = \
-                    SDS_vegline.find_veg_polygon(im_ms, cloud_mask, settings)
+                _veg_method = settings.get('veg_method', 'unclassified')
+                if _veg_method == 'ndvi':
+                    veg_contour, ndvi_thresh, im_veg_binary = \
+                        SDS_vegline.find_veg_polygon(im_ms, cloud_mask, settings,
+                                                     sand_mask=im_binary_sand_closed)
+                else:  # 'unclassified' — default
+                    veg_contour, im_veg_binary = \
+                        SDS_vegline.find_veg_unclassified(im_labels, im_binary_sand_closed,
+                                                          cloud_mask, settings)
                 if veg_contour is not None:
                     # pixel (row,col) → native image world coords → output_epsg
                     # mirrors the sand polygon pipeline exactly

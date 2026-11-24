@@ -205,6 +205,134 @@ def find_veg_polygon(im_ms, cloud_mask, settings, sand_mask=None):
 
 
 # ---------------------------------------------------------------------------
+# Unclassified-pixel vegetation detection
+# ---------------------------------------------------------------------------
+
+def find_veg_unclassified(im_labels, im_binary_sand_closed, cloud_mask, settings):
+    """
+    Detect vegetation as NN-unclassified pixels inside the sand polygon.
+
+    The CoastSat NN classifier labels each pixel as sand, whitewater, or water
+    (im_labels planes 0, 1, 2 respectively).  Pixels that are inside the sand
+    polygon but not assigned to any of those three classes are spectrally
+    distinct — almost always vegetation on a sandy island.
+
+    This is a pragmatic interim approach.  The long-term solution is to add
+    vegetation as an explicit class to the NN classifier.
+
+    Parameters
+    ----------
+    im_labels : ndarray  bool  (rows, cols, 3)
+        NN classification planes: [:,:,0]=sand, [:,:,1]=whitewater, [:,:,2]=water.
+    im_binary_sand_closed : ndarray  bool
+        Filled sand polygon mask (True = inside island footprint).
+    cloud_mask : ndarray  bool
+    settings : dict
+        Relevant key: 'min_veg_area' (int, default 500 pixels).
+
+    Returns
+    -------
+    veg_contour : ndarray (N, 2) or None
+        Outer boundary in pixel coordinates (row, col).
+    im_veg_binary : ndarray  bool
+        Cleaned binary vegetation mask.
+    """
+    min_veg_area = int(settings.get('min_veg_area', 500))
+
+    # pixels the NN assigned to any known class
+    im_classified = im_labels[:, :, 0] | im_labels[:, :, 1] | im_labels[:, :, 2]
+
+    # unclassified pixels inside the island, excluding cloud
+    im_veg = im_binary_sand_closed & ~im_classified & ~cloud_mask
+
+    _empty = np.zeros(cloud_mask.shape, dtype=bool)
+
+    if not np.any(im_veg):
+        return None, _empty
+
+    # --- morphological cleaning ---
+    im_veg = morphology.remove_small_objects(im_veg, min_size=min_veg_area)
+    im_veg = binary_fill_holes(im_veg)
+    im_veg = morphology.remove_small_holes(im_veg, area_threshold=min_veg_area)
+
+    if not np.any(im_veg):
+        return None, _empty
+
+    # --- outer contour ---
+    contours = measure.find_contours(im_veg.astype(float), 0.5)
+    if not contours:
+        return None, im_veg
+
+    main_contour = contours[np.argmax([len(c) for c in contours])]
+
+    return main_contour, im_veg
+
+
+# ---------------------------------------------------------------------------
+# Unclassified-pixel vegetation detection (default)
+# ---------------------------------------------------------------------------
+
+def find_veg_unclassified(im_labels, im_binary_sand_closed, cloud_mask, settings):
+    """
+    Detect vegetation as NN-unclassified pixels inside the sand polygon.
+
+    The CoastSat NN classifier labels each pixel as sand, whitewater, or water
+    (im_labels planes 0, 1, 2 respectively).  Pixels that are inside the sand
+    polygon but not assigned to any of those three classes are spectrally
+    distinct — almost always vegetation on a sandy island.
+
+    This is a pragmatic interim approach.  The long-term solution is to add
+    vegetation as an explicit class to the NN classifier.
+
+    Parameters
+    ----------
+    im_labels : ndarray  bool  (rows, cols, 3)
+        NN classification planes: [:,:,0]=sand, [:,:,1]=whitewater, [:,:,2]=water.
+    im_binary_sand_closed : ndarray  bool
+        Filled sand polygon mask (True = inside island footprint).
+    cloud_mask : ndarray  bool
+    settings : dict
+        Relevant key: 'min_veg_area' (int, default 500 pixels).
+
+    Returns
+    -------
+    veg_contour : ndarray (N, 2) or None
+        Outer boundary in pixel coordinates (row, col).
+    im_veg_binary : ndarray  bool
+        Cleaned binary vegetation mask.
+    """
+    min_veg_area = int(settings.get('min_veg_area', 500))
+
+    # pixels the NN assigned to any known class
+    im_classified = im_labels[:, :, 0] | im_labels[:, :, 1] | im_labels[:, :, 2]
+
+    # unclassified pixels inside the island, excluding cloud
+    im_veg = im_binary_sand_closed & ~im_classified & ~cloud_mask
+
+    _empty = np.zeros(cloud_mask.shape, dtype=bool)
+
+    if not np.any(im_veg):
+        return None, _empty
+
+    # --- morphological cleaning ---
+    im_veg = morphology.remove_small_objects(im_veg, min_size=min_veg_area)
+    im_veg = binary_fill_holes(im_veg)
+    im_veg = morphology.remove_small_holes(im_veg, area_threshold=min_veg_area)
+
+    if not np.any(im_veg):
+        return None, _empty
+
+    # --- outer contour ---
+    contours = measure.find_contours(im_veg.astype(float), 0.5)
+    if not contours:
+        return None, im_veg
+
+    main_contour = contours[np.argmax([len(c) for c in contours])]
+
+    return main_contour, im_veg
+
+
+# ---------------------------------------------------------------------------
 # Metric computation
 # ---------------------------------------------------------------------------
 
