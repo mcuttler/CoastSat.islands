@@ -299,7 +299,8 @@ def extract_sand_poly(metadata, settings):
                 else:  # 'unclassified' — default
                     veg_contour, im_veg_binary = \
                         SDS_vegline.find_veg_unclassified(im_labels, im_binary_sand_closed,
-                                                          cloud_mask, settings)
+                                                          cloud_mask, settings,
+                                                          pixel_size=pixel_size)
                 if veg_contour is not None:
                     # pixel (row,col) → native image world coords → output_epsg
                     # mirrors the sand polygon pipeline exactly

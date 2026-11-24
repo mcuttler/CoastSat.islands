@@ -103,7 +103,7 @@ settings = {
     's2cloudless_prob': 100,         # s2cloudless cloud probability threshold (0–100)
 
     # --- vegetation detection (only used when track_veg = True) ---
-    'min_veg_area': 500,             # minimum vegetated area (pixels)
+    'min_veg_area': 10000,           # minimum vegetated area (m²) — same units as min_beach_area
     'veg_thresh': 'auto',            # 'auto' = Otsu thresholding; or fixed float, e.g. 0.25
     'ndvi_thresh_ceiling': 0.25,   # Otsu upper clamp — lower this (e.g. 0.20) for sparse/patchy veg
     'ndvi_floor':          0.10,   # Otsu lower clamp — rarely needs changing
