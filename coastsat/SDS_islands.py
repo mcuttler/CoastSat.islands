@@ -628,11 +628,14 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
     ax2.set_anchor('C')
     ax3.set_anchor('E')
     
-    #plot sand contours on each sub plot
+    # sand contours on ax1 (RGB) and ax2 (classification)
     for k in range(len(sand_contours)):
-#                ax3.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
-                ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
-                ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)                
+        ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
+        ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)
+    # vegetation contour on ax1 (RGB) and ax2 (classification)
+    if veg_contour is not None:
+        ax1.plot(veg_contour[:, 1], veg_contour[:, 0], 'g-', linewidth=1.5)
+        ax2.plot(veg_contour[:, 1], veg_contour[:, 0], '-', color='lime', linewidth=1.5)
 
     # if check_detection is True, let user manually accept/reject the images.
     # Uses standard CoastSat 'check_detection' key (not deprecated 'check_detection_sand_poly').
