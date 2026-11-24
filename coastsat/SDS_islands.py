@@ -592,7 +592,8 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
         green_patch = mpatches.Patch(color=(0.0, 0.65, 0.0), label='vegetation')
         green_line = mlines.Line2D([], [], color='lime', linestyle='-', label='veg boundary')
         legend_handles += [green_patch, green_line]
-    ax2.legend(handles=legend_handles, bbox_to_anchor=(1, 0.5), fontsize=10)
+    ax2.legend(handles=legend_handles, loc='lower left', fontsize=9, ncol=2,
+               framealpha=0.85, edgecolor='gray')
     ax2.set_title(date, fontweight='bold', fontsize=12)
 
     # panel 3 (islands-specific): RGB + detected sand polygon major-axis orientation
