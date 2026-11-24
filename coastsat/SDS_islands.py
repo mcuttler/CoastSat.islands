@@ -935,7 +935,7 @@ def tide_correct_sand_polygon(cross_distance_corrected, output_corrected, settin
     gdf = output_to_gdf_poly(output_corrected)
     # set projection
     gdf = gdf.set_crs(epsg=settings['output_epsg'])
-    # save as geojson
+    # save as geojson    
     gdf.to_file(os.path.join(filepath, sitename + '_output_tide_corrected.geojson'), driver='GeoJSON', encoding='utf-8')
         
     #export output data to csv file  

@@ -101,17 +101,13 @@ settings['reference_shoreline'] = SDS_preprocess.get_reference_sl(metadata, sett
 settings['max_dist_ref'] = 100
 
 
-#%% 4. Sand polygon extraction
+#%% 4. Load existing sand output (from example_islands.py run)
 
-print('\n=== Sand polygon extraction ===')
-output_sand = SDS_islands.extract_sand_poly(metadata, settings)
-
-# Save sand output
 filepath_site = os.path.join(inputs['filepath'], sitename)
-os.makedirs(filepath_site, exist_ok=True)
-with open(os.path.join(filepath_site, sitename + '_output_sand.pkl'), 'wb') as f:
-    pickle.dump(output_sand, f)
-print('Sand output saved.')
+sand_pkl = os.path.join(filepath_site, sitename + '_output.pkl')
+with open(sand_pkl, 'rb') as f:
+    output_sand = pickle.load(f)
+print(f'Sand output loaded: {len(output_sand["dates"])} images, keys: {list(output_sand.keys())}')
 
 
 #%% 5. Vegetation polygon extraction

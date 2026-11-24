@@ -240,11 +240,13 @@ def compute_veg_metrics(veg_polygon, im_veg_binary, georef):
         pass
 
     # --- centroid in world coordinates ---
+    # Note: veg_polygon was built from skimage contours in (row, col) order.
+    # Shapely stores them as (x=row, y=col), so centroid.x=row, centroid.y=col.
     try:
-        cx_pix = veg_polygon.centroid.x   # col
-        cy_pix = veg_polygon.centroid.y   # row
-        cx_w = georef[0] + cx_pix * georef[1]
-        cy_w = georef[3] + cy_pix * georef[5]
+        centroid_row = veg_polygon.centroid.x   # Shapely x == row
+        centroid_col = veg_polygon.centroid.y   # Shapely y == col
+        cx_w = georef[0] + centroid_col * georef[1]  # easting  = Xul + col*dx
+        cy_w = georef[3] + centroid_row * georef[5]  # northing = Yul + row*dy
         metrics['veg_centroid'] = [float(cx_w), float(cy_w)]
     except Exception:
         pass
@@ -344,6 +346,7 @@ def extract_veglines_islands(metadata, settings):
                   end='')
 
             fn = SDS_tools.get_filenames(filenames[i], filepath, satname)
+            image_epsg = metadata[satname]['epsg'][i]
 
             # --- preprocessing (same call as extract_sand_poly after the fix) ---
             try:
@@ -379,6 +382,15 @@ def extract_veglines_islands(metadata, settings):
                 x_w = georef[0] + ext[:, 1] * georef[1]
                 y_w = georef[3] + ext[:, 0] * georef[5]
                 veg_coords = np.column_stack([x_w, y_w])
+                # reproject from native image CRS to the target output CRS
+                veg_coords = SDS_tools.convert_epsg(veg_coords, image_epsg,
+                                                    settings['output_epsg'])
+                # also reproject the centroid
+                if not np.isnan(metrics['veg_centroid'][0]):
+                    cen = SDS_tools.convert_epsg(
+                        np.array([metrics['veg_centroid']]),
+                        image_epsg, settings['output_epsg'])
+                    metrics['veg_centroid'] = list(cen[0])
             else:
                 metrics = dict(veg_area=np.nan, veg_perimeter=np.nan,
                                veg_centroid=[np.nan, np.nan],
