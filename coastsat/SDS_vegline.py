@@ -115,13 +115,13 @@ def threshold_ndvi(im_ndvi, cloud_mask, min_veg_area=500):
 
 def find_veg_polygon(im_ms, cloud_mask, settings):
     """
-    Extract the vegetation polygon from a multi-spectral image.
+    Extract the vegetation contour from a multi-spectral image.
 
     Steps:
       1. Compute NDVI.
       2. Threshold (auto Otsu or fixed value from settings).
       3. Morphological cleaning (remove small objects, fill holes).
-      4. Find the largest contour → Shapely Polygon in *pixel* coordinates.
+      4. Find the largest contour in pixel coordinates.
 
     Parameters
     ----------
@@ -134,11 +134,13 @@ def find_veg_polygon(im_ms, cloud_mask, settings):
 
     Returns
     -------
-    veg_polygon : shapely.Polygon or None
-        Outer boundary of the vegetation area in pixel coordinates
-        (row, col).  None if no vegetation was detected.
+    veg_contour : ndarray (N, 2) or None
+        Outer boundary of the vegetation area in pixel coordinates (row, col).
+        None if no vegetation was detected.
     ndvi_thresh : float
         NDVI threshold that was applied.
+    im_veg_binary : ndarray bool
+        Cleaned binary vegetation mask (True = vegetated pixel).
     """
     min_veg_area = int(settings.get('min_veg_area', 500))
     veg_thresh_setting = settings.get('veg_thresh', 'auto')
@@ -153,7 +155,7 @@ def find_veg_polygon(im_ms, cloud_mask, settings):
         im_veg = (im_ndvi > ndvi_thresh) & valid
 
     if not np.any(im_veg):
-        return None, ndvi_thresh
+        return None, ndvi_thresh, im_veg
 
     # --- morphological cleaning ---
     im_veg = morphology.remove_small_objects(im_veg, min_size=min_veg_area)
@@ -161,62 +163,72 @@ def find_veg_polygon(im_ms, cloud_mask, settings):
     im_veg = morphology.remove_small_holes(im_veg, area_threshold=min_veg_area)
 
     if not np.any(im_veg):
-        return None, ndvi_thresh
+        return None, ndvi_thresh, im_veg
 
-    # --- outer contour ---
+    # --- outer contour (pixel coords: row, col) ---
     contours = measure.find_contours(im_veg.astype(float), 0.5)
     if not contours:
-        return None, ndvi_thresh
+        return None, ndvi_thresh, im_veg
 
     main_contour = contours[np.argmax([len(c) for c in contours])]
 
-    try:
-        ring = LinearRing(main_contour)
-        veg_polygon = Polygon(ring)
-        if not veg_polygon.is_valid:
-            veg_polygon = veg_polygon.buffer(0)
-    except Exception:
-        return None, ndvi_thresh
-
-    return veg_polygon, ndvi_thresh
+    return main_contour, ndvi_thresh, im_veg
 
 
 # ---------------------------------------------------------------------------
 # Metric computation
 # ---------------------------------------------------------------------------
 
-def compute_veg_metrics(veg_polygon, im_veg_binary, georef):
+def compute_veg_metrics(veg_polygon_world, im_veg_binary):
     """
-    Compute shape metrics for a vegetation polygon.
+    Compute shape metrics for a vegetation polygon in world coordinates.
 
-    Pixel-space coordinates are converted to world coordinates using the
-    image georeference (standard GDAL GeoTransform convention).
+    Mirrors the sand metric computation in SDS_islands.extract_sand_poly:
+    area, perimeter and centroid come directly from the world-coordinate
+    Shapely polygon (so units are metres), while eccentricity and orientation
+    come from skimage regionprops on the binary mask (pixel space, same
+    convention as sand orientation for direct comparison).
 
     Parameters
     ----------
-    veg_polygon : shapely.Polygon  (pixel coordinates)
+    veg_polygon_world : shapely.Polygon
+        Vegetation polygon in world coordinates (output_epsg CRS, metres).
+        Built via SDS_tools.convert_pix2world + SDS_tools.convert_epsg,
+        exactly as the sand polygon is built in extract_sand_poly.
     im_veg_binary : ndarray  bool  (rows, cols)
-    georef : array-like  length-6
-        [Xul, dX, 0, Yul, 0, dY]  — standard GDAL GeoTransform.
+        Cleaned binary vegetation mask used to compute eccentricity and
+        orientation via regionprops (pixel space — same convention as sand).
 
     Returns
     -------
     metrics : dict
         'veg_area'          : float  m²
         'veg_perimeter'     : float  m
-        'veg_centroid'      : [float, float]  world (easting, northing)
+        'veg_centroid'      : [float, float]  (easting, northing) in output_epsg
         'veg_eccentricity'  : float  (0 = circle, 1 = line)
-        'veg_orientation'   : float  radians from horizontal
+        'veg_orientation'   : float  radians from positive x-axis (pixel space),
+                              same convention as sand_orientation
     """
     nan2 = [np.nan, np.nan]
     metrics = dict(veg_area=np.nan, veg_perimeter=np.nan,
                    veg_centroid=nan2, veg_eccentricity=np.nan,
                    veg_orientation=np.nan)
 
-    if veg_polygon is None or veg_polygon.is_empty:
+    if veg_polygon_world is None or veg_polygon_world.is_empty:
         return metrics
 
-    # --- shape metrics via regionprops ---
+    # --- area, perimeter, centroid from world-coordinate polygon ---
+    try:
+        metrics['veg_area'] = float(veg_polygon_world.area)
+        metrics['veg_perimeter'] = float(veg_polygon_world.exterior.length)
+        cx, cy = veg_polygon_world.centroid.coords[0]
+        metrics['veg_centroid'] = [float(cx), float(cy)]
+    except Exception:
+        pass
+
+    # --- eccentricity and orientation from regionprops on pixel binary ---
+    # Pixel-space orientation matches sand_orientation convention exactly:
+    # regionprops.orientation = radians from positive x-axis (counterclockwise).
     try:
         labeled = measure.label(im_veg_binary.astype(int))
         props = measure.regionprops(labeled)
@@ -224,30 +236,6 @@ def compute_veg_metrics(veg_polygon, im_veg_binary, georef):
             largest = max(props, key=lambda p: p.area)
             metrics['veg_eccentricity'] = float(largest.eccentricity)
             metrics['veg_orientation'] = float(largest.orientation)
-    except Exception:
-        pass
-
-    # --- convert exterior ring to world coordinates ---
-    try:
-        ext = np.array(veg_polygon.exterior.coords)   # shape (N, 2): [row, col]
-        # GDAL GeoTransform: X = Xul + col*dX,  Y = Yul + row*dY
-        x_w = georef[0] + ext[:, 1] * georef[1]
-        y_w = georef[3] + ext[:, 0] * georef[5]
-        world_poly = Polygon(zip(x_w, y_w))
-        metrics['veg_area'] = float(world_poly.area)
-        metrics['veg_perimeter'] = float(world_poly.length)
-    except Exception:
-        pass
-
-    # --- centroid in world coordinates ---
-    # Note: veg_polygon was built from skimage contours in (row, col) order.
-    # Shapely stores them as (x=row, y=col), so centroid.x=row, centroid.y=col.
-    try:
-        centroid_row = veg_polygon.centroid.x   # Shapely x == row
-        centroid_col = veg_polygon.centroid.y   # Shapely y == col
-        cx_w = georef[0] + centroid_col * georef[1]  # easting  = Xul + col*dx
-        cy_w = georef[3] + centroid_row * georef[5]  # northing = Yul + row*dy
-        metrics['veg_centroid'] = [float(cx_w), float(cy_w)]
     except Exception:
         pass
 
@@ -348,13 +336,14 @@ def extract_veglines_islands(metadata, settings):
             fn = SDS_tools.get_filenames(filenames[i], filepath, satname)
             image_epsg = metadata[satname]['epsg'][i]
 
-            # --- preprocessing (same call as extract_sand_poly after the fix) ---
+            # --- preprocessing (matches extract_sand_poly signature) ---
             try:
                 im_ms, georef, cloud_mask, im_extra, imQA, im_nodata = \
                     SDS_preprocess.preprocess_single(
                         fn, satname,
                         settings['cloud_mask_issue'],
-                        settings['pan_off'])
+                        settings['pan_off'],
+                        settings['s2cloudless_prob'])
             except Exception as exc:
                 print(f'\n    [{i + 1}/{n_images}] preprocessing error: {exc}')
                 continue
@@ -364,38 +353,37 @@ def extract_veglines_islands(metadata, settings):
             if cloud_cover > settings['cloud_thresh']:
                 continue
 
-            # --- extract vegetation polygon ---
-            veg_polygon, ndvi_thresh = find_veg_polygon(im_ms, cloud_mask, settings)
+            # --- extract vegetation contour in pixel coords ---
+            veg_contour, ndvi_thresh, im_veg_binary = \
+                find_veg_polygon(im_ms, cloud_mask, settings)
 
-            # --- metrics ---
-            if veg_polygon is not None:
-                # Reconstruct binary mask for regionprops (consistent with polygon)
-                im_ndvi = compute_ndvi(im_ms, cloud_mask)
-                t = ndvi_thresh if np.isfinite(ndvi_thresh) else 0.3
-                im_veg_bin = binary_fill_holes(
-                    (im_ndvi > t) & ~cloud_mask & ~np.isnan(im_ndvi)
-                )
-                metrics = compute_veg_metrics(veg_polygon, im_veg_bin, georef)
-
-                # Exterior coords in world CRS for storage
-                ext = np.array(veg_polygon.exterior.coords)
-                x_w = georef[0] + ext[:, 1] * georef[1]
-                y_w = georef[3] + ext[:, 0] * georef[5]
-                veg_coords = np.column_stack([x_w, y_w])
-                # reproject from native image CRS to the target output CRS
-                veg_coords = SDS_tools.convert_epsg(veg_coords, image_epsg,
-                                                    settings['output_epsg'])
-                # also reproject the centroid
-                if not np.isnan(metrics['veg_centroid'][0]):
-                    cen = SDS_tools.convert_epsg(
-                        np.array([metrics['veg_centroid']]),
-                        image_epsg, settings['output_epsg'])
-                    metrics['veg_centroid'] = list(cen[0])
+            # --- build world-coordinate polygon (mirrors sand polygon pipeline) ---
+            if veg_contour is not None:
+                # pixel (row,col) → native image world coords → output_epsg
+                veg_coords_world = SDS_tools.convert_pix2world(veg_contour, georef)
+                veg_coords = SDS_tools.convert_epsg(
+                    veg_coords_world, image_epsg, settings['output_epsg'])
+                # drop any NaN rows before building the ring
+                veg_coords_clean = veg_coords[~np.isnan(veg_coords[:, 0])]
+                try:
+                    ring = LinearRing(veg_coords_clean)
+                    veg_polygon_world = Polygon(shell=ring, holes=None)
+                    if not veg_polygon_world.is_valid:
+                        veg_polygon_world = veg_polygon_world.buffer(0)
+                except Exception:
+                    veg_polygon_world = None
+                    veg_coords = None
             else:
-                metrics = dict(veg_area=np.nan, veg_perimeter=np.nan,
-                               veg_centroid=[np.nan, np.nan],
-                               veg_eccentricity=np.nan,
-                               veg_orientation=np.nan)
+                veg_polygon_world = None
+                veg_coords = None
+
+            # --- metrics from world polygon + pixel binary ---
+            metrics = compute_veg_metrics(veg_polygon_world, im_veg_binary)
+
+            # store polygon exterior coords as Nx2 array for later Shapely ops
+            if veg_polygon_world is not None and not veg_polygon_world.is_empty:
+                veg_coords = np.array(veg_polygon_world.exterior.coords)
+            else:
                 veg_coords = None
 
             # --- store ---
