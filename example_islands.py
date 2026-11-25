@@ -271,32 +271,32 @@ if settings.get('track_veg', False):
 
 # ---- Option 1: FES2022 global tide model (recommended) -------------------------
 # Setup: https://github.com/kvos/CoastSat/blob/master/doc/FES2022_setup.md
-# from coastsat import SDS_slope
-# import pyfes
-# # tide_point: an open-water location used for FES tidal prediction.
-# # Do NOT use the polygon centroid — it may fall on a land cell in the FES grid,
-# # producing NaN or spurious tide values. Choose a point ~5+ km offshore in open ocean.
-# # Format: [longitude, latitude]  (longitude first, following CoastSat convention)
-# tide_point = [114.35, -21.95]   # <-- set to an open-ocean point near your site
-# if tide_point[0] < 0: tide_point[0] += 360
-# filepath_fes = r'V:\Data\General\tides\fes2022b'
-# selected_yaml = os.path.join(filepath_fes, 'fes2022.yaml')
-# # Option 1b: latitude-clipped model (1–2 GB RAM)
-# # fp_band_configs = os.path.join(os.getcwd(), 'examples', 'tide_model_clipping',
-# #                                'fes2022_by_latitude', 'band_configs.json')
-# # with open(fp_band_configs, 'r') as f: band_configs = json.load(f)
-# # selected_yaml = SDS_slope.select_yaml_for_centroid(tide_point, band_configs)['yaml']
-# if int(pyfes.__version__.split('.')[0]) < 2026:
-#     handlers = pyfes.load_config(selected_yaml)
-#     ocean_tide, load_tide = handlers['tide'], handlers['radial']
-# else:
-#     config = pyfes.config.load(selected_yaml)
-#     ocean_tide, load_tide = config.models['tide'], config.models['radial']
-# date_range = [pytz.utc.localize(datetime(1984, 1, 1)), pytz.utc.localize(datetime(2030, 1, 1))]
-# dates_ts, tides_ts = SDS_slope.compute_tide(tide_point, date_range, 900, ocean_tide, load_tide)
-# tides_sat = SDS_slope.compute_tide_dates(tide_point, output['dates'], ocean_tide, load_tide)
-# output_corrected = dict(output)
-# output_corrected['tide'] = list(tides_sat)
+from coastsat import SDS_slope
+import pyfes
+# tide_point: an open-water location used for FES tidal prediction.
+# Do NOT use the polygon centroid — it may fall on a land cell in the FES grid,
+# producing NaN or spurious tide values. Choose a point ~5+ km offshore in open ocean.
+# Format: [longitude, latitude]  (longitude first, following CoastSat convention)
+tide_point = [114.35, -21.95]   # <-- set to an open-ocean point near your site
+if tide_point[0] < 0: tide_point[0] += 360
+filepath_fes = r'V:\Data\General\tides\fes2022b'
+selected_yaml = os.path.join(filepath_fes, 'fes2022.yaml')
+# Option 1b: latitude-clipped model (1–2 GB RAM)
+# fp_band_configs = os.path.join(os.getcwd(), 'examples', 'tide_model_clipping',
+#                                'fes2022_by_latitude', 'band_configs.json')
+# with open(fp_band_configs, 'r') as f: band_configs = json.load(f)
+# selected_yaml = SDS_slope.select_yaml_for_centroid(tide_point, band_configs)['yaml']
+if int(pyfes.__version__.split('.')[0]) < 2026:
+    handlers = pyfes.load_config(selected_yaml)
+    ocean_tide, load_tide = handlers['tide'], handlers['radial']
+else:
+    config = pyfes.config.load(selected_yaml)
+    ocean_tide, load_tide = config.models['tide'], config.models['radial']
+date_range = [pytz.utc.localize(datetime(1984, 1, 1)), pytz.utc.localize(datetime(2030, 1, 1))]
+dates_ts, tides_ts = SDS_slope.compute_tide(tide_point, date_range, 900, ocean_tide, load_tide)
+tides_sat = SDS_slope.compute_tide_dates(tide_point, output['dates'], ocean_tide, load_tide)
+output_corrected = dict(output)
+output_corrected['tide'] = list(tides_sat)
 
 # ---- Option 2: measured tide data — CoastSat standard UTC CSV -------------------
 # CSV must have columns: 'dates' (UTC, pandas-parseable) and 'tide' (metres above MSL)
@@ -304,8 +304,8 @@ if settings.get('track_veg', False):
 # tides_sat, output_corrected = SDS_islands.process_tide_data(tide_file, output)
 
 # ---- Option 3: measured tide data — legacy tab-separated (WA local time, UTC+8) -
-tide_file = os.path.join(os.getcwd(), 'example', 'EvaTide_2019.txt')
-tides_sat, output_corrected = SDS_islands.process_tide_data(tide_file, output)
+# tide_file = os.path.join(os.getcwd(), 'example', 'EvaTide_2019.txt')
+# tides_sat, output_corrected = SDS_islands.process_tide_data(tide_file, output)
 
 # plot tide levels at satellite acquisition times
 fig, ax = plt.subplots(1, 1, figsize=(14, 4), tight_layout=True)
