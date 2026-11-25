@@ -273,6 +273,7 @@ if settings.get('track_veg', False):
 # Setup: https://github.com/kvos/CoastSat/blob/master/doc/FES2022_setup.md
 from coastsat import SDS_slope
 import pyfes
+
 # tide_point: an open-water location used for FES tidal prediction.
 # Do NOT use the polygon centroid — it may fall on a land cell in the FES grid,
 # producing NaN or spurious tide values. Choose a point ~5+ km offshore in open ocean.
@@ -292,6 +293,7 @@ if int(pyfes.__version__.split('.')[0]) < 2026:
 else:
     config = pyfes.config.load(selected_yaml)
     ocean_tide, load_tide = config.models['tide'], config.models['radial']
+
 date_range = [pytz.utc.localize(datetime(1984, 1, 1)), pytz.utc.localize(datetime(2030, 1, 1))]
 dates_ts, tides_ts = SDS_slope.compute_tide(tide_point, date_range, 900, ocean_tide, load_tide)
 tides_sat = SDS_slope.compute_tide_dates(tide_point, output['dates'], ocean_tide, load_tide)
