@@ -279,7 +279,7 @@ if settings.get('track_veg', False):
 # # Format: [longitude, latitude]  (longitude first, following CoastSat convention)
 # tide_point = [114.35, -21.95]   # <-- set to an open-ocean point near your site
 # if tide_point[0] < 0: tide_point[0] += 360
-# filepath_fes = os.path.join(os.pardir, 'CoastSat.webgis', 'aviso-fes-main', 'data', 'fes2022b')
+# filepath_fes = r'V:\Data\General\tides\fes2022b'
 # selected_yaml = os.path.join(filepath_fes, 'fes2022.yaml')
 # # Option 1b: latitude-clipped model (1–2 GB RAM)
 # # fp_band_configs = os.path.join(os.getcwd(), 'examples', 'tide_model_clipping',
