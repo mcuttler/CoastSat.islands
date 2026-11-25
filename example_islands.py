@@ -273,15 +273,19 @@ if settings.get('track_veg', False):
 # Setup: https://github.com/kvos/CoastSat/blob/master/doc/FES2022_setup.md
 # from coastsat import SDS_slope
 # import pyfes
-# centroid = np.mean(polygon[0], axis=0)
-# if centroid[0] < 0: centroid[0] += 360
+# # tide_point: an open-water location used for FES tidal prediction.
+# # Do NOT use the polygon centroid — it may fall on a land cell in the FES grid,
+# # producing NaN or spurious tide values. Choose a point ~5+ km offshore in open ocean.
+# # Format: [longitude, latitude]  (longitude first, following CoastSat convention)
+# tide_point = [114.35, -21.95]   # <-- set to an open-ocean point near your site
+# if tide_point[0] < 0: tide_point[0] += 360
 # filepath_fes = os.path.join(os.pardir, 'CoastSat.webgis', 'aviso-fes-main', 'data', 'fes2022b')
 # selected_yaml = os.path.join(filepath_fes, 'fes2022.yaml')
 # # Option 1b: latitude-clipped model (1–2 GB RAM)
 # # fp_band_configs = os.path.join(os.getcwd(), 'examples', 'tide_model_clipping',
 # #                                'fes2022_by_latitude', 'band_configs.json')
 # # with open(fp_band_configs, 'r') as f: band_configs = json.load(f)
-# # selected_yaml = SDS_slope.select_yaml_for_centroid(centroid, band_configs)['yaml']
+# # selected_yaml = SDS_slope.select_yaml_for_centroid(tide_point, band_configs)['yaml']
 # if int(pyfes.__version__.split('.')[0]) < 2026:
 #     handlers = pyfes.load_config(selected_yaml)
 #     ocean_tide, load_tide = handlers['tide'], handlers['radial']
@@ -289,8 +293,8 @@ if settings.get('track_veg', False):
 #     config = pyfes.config.load(selected_yaml)
 #     ocean_tide, load_tide = config.models['tide'], config.models['radial']
 # date_range = [pytz.utc.localize(datetime(1984, 1, 1)), pytz.utc.localize(datetime(2030, 1, 1))]
-# dates_ts, tides_ts = SDS_slope.compute_tide(centroid, date_range, 900, ocean_tide, load_tide)
-# tides_sat = SDS_slope.compute_tide_dates(centroid, output['dates'], ocean_tide, load_tide)
+# dates_ts, tides_ts = SDS_slope.compute_tide(tide_point, date_range, 900, ocean_tide, load_tide)
+# tides_sat = SDS_slope.compute_tide_dates(tide_point, output['dates'], ocean_tide, load_tide)
 # output_corrected = dict(output)
 # output_corrected['tide'] = list(tides_sat)
 
