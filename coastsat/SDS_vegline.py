@@ -16,6 +16,7 @@ Authors:
 """
 
 import os
+import math
 import warnings
 import numpy as np
 import skimage.filters as filters
@@ -301,7 +302,7 @@ def compute_veg_metrics(veg_polygon_world, im_veg_binary):
         'veg_perimeter'     : float  m
         'veg_centroid'      : [float, float]  (easting, northing) in output_epsg
         'veg_eccentricity'  : float  (0 = circle, 1 = line)
-        'veg_orientation'   : float  radians from positive x-axis (same convention as sand)
+        'veg_orientation'   : float  nautical bearing of major axis in degrees (0=N–S, 90=E–W, CW from N)
     """
     nan2 = [np.nan, np.nan]
     metrics = dict(veg_area=np.nan, veg_perimeter=np.nan,
@@ -327,7 +328,8 @@ def compute_veg_metrics(veg_polygon_world, im_veg_binary):
         if props:
             largest = max(props, key=lambda p: p.area)
             metrics['veg_eccentricity'] = float(largest.eccentricity)
-            metrics['veg_orientation'] = float(largest.orientation)
+            # Convert to nautical bearing: 0–180° CW from North (0=N–S axis, 90=E–W axis)
+            metrics['veg_orientation'] = (-math.degrees(float(largest.orientation))) % 180
     except Exception:
         pass
 
@@ -377,7 +379,7 @@ def extract_veglines_islands(metadata, settings):
         'veg_perimeter'      — perimeter (m)
         'veg_centroid'       — [easting, northing] of centroid
         'veg_eccentricity'   — eccentricity (0 = circle, 1 = line)
-        'veg_orientation'    — orientation of major axis (radians)
+        'veg_orientation'    — orientation of major axis (degrees, nautical: 0=N–S, 90=E–W, CW from N)
         'ndvi_threshold'     — NDVI threshold applied
         'geoaccuracy'        — georeferencing accuracy (m)
 

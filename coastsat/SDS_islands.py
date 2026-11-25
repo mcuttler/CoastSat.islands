@@ -112,7 +112,7 @@ def extract_sand_poly(metadata, settings):
         output_sand_centroid = []   #coordinates center of mass of sandy pixels
         output_sand_points = []     #coordinates of sandy pixels
         output_sand_eccentricity = [] #measure of sand area eccentricity
-        output_sand_orientation = []  #orientation of major axis
+        output_sand_orientation = []  #orientation of major axis (degrees, nautical: 0=N–S, 90=E–W, CW from N)
         # vegetation fields (only populated when settings.get('track_veg', False))
         output_veg_area = []
         output_veg_perimeter = []
@@ -274,9 +274,12 @@ def extract_sand_poly(metadata, settings):
                     bbox.append(regions[j]['bbox_area'])
                 sand_eccentricity = regions[np.argmax(bbox)]['eccentricity']
                 sand_orientation = regions[np.argmax(bbox)]['orientation']
-            else:                    
+            else:
                 sand_eccentricity = regions[0]['eccentricity']
                 sand_orientation = regions[0]['orientation']
+            # Convert skimage orientation (radians from row-axis, CCW) to nautical bearing:
+            # 0–180° clockwise from North (0° = N–S axis, 90° = E–W axis).
+            sand_orientation = (-math.degrees(sand_orientation)) % 180
             #######################################################################################
             #######################################################################################
 
@@ -592,8 +595,7 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
         green_patch = mpatches.Patch(color=(0.0, 0.65, 0.0), label='vegetation')
         green_line = mlines.Line2D([], [], color='lime', linestyle='-', label='veg boundary')
         legend_handles += [green_patch, green_line]
-    ax2.legend(handles=legend_handles, loc='lower left', fontsize=9, ncol=2,
-               framealpha=0.85, edgecolor='gray')
+    ax2.legend(handles=legend_handles, bbox_to_anchor=(1, 0.5), fontsize=10)
     ax2.set_title(date, fontweight='bold', fontsize=12)
 
     # panel 3 (islands-specific): RGB + detected sand polygon major-axis orientation
@@ -601,8 +603,9 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
     for props in regions:
         y0, x0 = props.centroid
         orientation = props.orientation
-        # skimage: orientation = angle from row-axis (vertical) CCW to major axis.
-        # Major-axis formula: Δcol = -sin(θ), Δrow = -cos(θ)  (cos/sin gives minor axis).
+        # skimage orientation = angle from row-axis (vertical) CCW to major axis.
+        # Major-axis endpoint formula (from skimage docs): dx = -sin(θ), dy = -cos(θ).
+        # (cos/sin gives the MINOR axis direction — do not use for major axis.)
         x1 = x0 - math.sin(orientation) * 0.5 * props.major_axis_length
         y1 = y0 - math.cos(orientation) * 0.5 * props.major_axis_length
         x2 = x0 + math.sin(orientation) * 0.5 * props.major_axis_length
@@ -616,8 +619,6 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
         veg_regions = measure.regionprops(veg_label_img)
         if veg_regions:
             veg_props = veg_regions[np.argmax([r.area for r in veg_regions])]
-            y0v, x0v = veg_props.centroid
-            orient_v = veg_props.orientation
             # DEBUG: report mask geometry so we can verify what regionprops sees
             _bbox = veg_props.bbox   # (min_row, min_col, max_row, max_col)
             _ns = _bbox[2] - _bbox[0]; _ew = _bbox[3] - _bbox[1]
@@ -628,7 +629,8 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
                   f"major={veg_props.major_axis_length:.1f}  "
                   f"minor={veg_props.minor_axis_length:.1f}  "
                   f"orientation={math.degrees(veg_props.orientation):.1f}deg")
-            # Major-axis formula (same convention as sand): Δcol = -sin(θ), Δrow = -cos(θ)
+            y0v, x0v = veg_props.centroid
+            orient_v = veg_props.orientation
             x1v = x0v - math.sin(orient_v) * 0.5 * veg_props.major_axis_length
             y1v = y0v - math.cos(orient_v) * 0.5 * veg_props.major_axis_length
             x2v = x0v + math.sin(orient_v) * 0.5 * veg_props.major_axis_length
@@ -642,11 +644,15 @@ def show_detection_sand_poly(im_ms, cloud_mask, im_labels, im_binary_sand, im_bi
     ax2.set_anchor('C')
     ax3.set_anchor('E')
     
-    # sand contours on ax1 (RGB) and ax2 (classification)
+    #plot sand contours on each sub plot
     for k in range(len(sand_contours)):
-        ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
-        ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)
+#                ax3.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
+                ax2.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'r-', linewidth=2.5)
+                ax1.plot(sand_contours[k][:,1], sand_contours[k][:,0], 'k--', linewidth=1.5)
+
     # vegetation contour on ax1 (RGB) and ax2 (classification overlay)
+    # veg_contour can be None when find_contours returned empty even though im_veg_binary
+    # has pixels (e.g. region fully fills the array bounds), so derive it here as fallback.
     _draw_veg_contour = veg_contour
     if _draw_veg_contour is None and im_veg_binary is not None and np.any(im_veg_binary):
         _veg_ctrs = measure.find_contours(im_veg_binary.astype(float), 0.5)
